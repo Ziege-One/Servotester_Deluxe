@@ -27,7 +27,7 @@
 #include <EEPROM.h>
 #include "sbus.h"
 
-const float Version = 0.2; // Software Version
+const float Version = 0.3; // Software Version
 
 // EEprom
 #define EEPROM_SIZE 20
@@ -47,10 +47,13 @@ int button_PIN = 15;            // Hardware Pin Button
 int encoder_Pin1 =16;           // Hardware Pin1 Encoder
 int encoder_Pin2 =17;           // Hardware Pin2 Encoder
 long prev = 0;                  // Zeitspeicher für Taster 
+long prev2 = 0;                 // Zeitspeicher für Taster 
 long previousDebouncTime = 0;   // Speicher Entprellzeit für Taster 
-int buttonState = 0;            // 0 = Taster nicht betätigt; 1 = Taster langer Druck; 2 = Taster kurzer Druck
+int buttonState = 0;            // 0 = Taster nicht betätigt; 1 = Taster langer Druck; 2 = Taster kurzer Druck; 3 = Taster Doppelklick
 int encoderState = 0;           // 1 = Drehung nach Links (-); 2 = Drehung nach Rechts (+) 
-int Duration_long = 1000;       // Zeit für langen Druck
+int Duration_long = 600;        // Zeit für langen Druck
+int Duration_double = 200;      // Zeit für Doppelklick
+int bouncing = 50;              // Zeit für Taster Entprellung
 int encoder_last;               // Speicher letzer Wert Encoder
 int encoder_read;               // Speicher aktueller Wert Encoder
 
@@ -86,8 +89,7 @@ SSD1306Wire display(0x3c, SDA, SCL);   // Oled Hardware an SDA 21 und SCL 22
 #include "images.h"
 
 // Wlan Einstellungen Client Modus
-const char* ssid     = "wlan";
-const char* password = "123456789";
+#include "credentials.h"
 
 // Webserver auf Port 80
 WiFiServer server(80);
@@ -199,7 +201,11 @@ void setup() {
   
 
   encoder.setCount(Menu);
-  servo_pos[servocount] = 1500; 
+  servo_pos[0] = 1500;
+  servo_pos[1] = 1500;
+  servo_pos[2] = 1500;
+  servo_pos[3] = 1500;
+  servo_pos[4] = 1500; 
 }
 
 // ======== Loop  =======================================
@@ -306,16 +312,30 @@ void ButtonRead(){
   
   buttonState = 0;
   if (!(digitalRead(button_PIN))){  // Button gedrückt 0
+    delay(bouncing);                // Taster entprellen
     prev = millis();
     buttonState = 1;
     while((millis()-prev)<=Duration_long){
-      if(digitalRead(button_PIN)){  // Button wieder 1 innerhalb Zeit
+      if(digitalRead(button_PIN)){  // Button losgelassen 1 innerhalb Zeit
+        delay(bouncing);            // Taster entprellen
         buttonState = 2;
-        break;
+        prev2 = millis();
+        while((millis()-prev2)<=Duration_double){     //Doppelkick abwarten
+          if (!(digitalRead(button_PIN))){ // Button gedrückt 0 innerhalb Zeit Doppelklick
+            delay(bouncing);               // Taster entprellen
+            buttonState = 3;
+            if(digitalRead(button_PIN)){   // Button losgelassen 1
+              break;
+            }
+          }
+        }    
+      break;
       }
     }
     while(!(digitalRead(button_PIN))){ // Warten bis Button nicht gedückt ist = 1
     }
+    Serial.print("Buttonstate: ");
+    Serial.println(buttonState);
   }
 
   encoder_read = encoder.getCount();
@@ -478,6 +498,10 @@ switch (Menu) {
     if (!SetupMenu)
     {
       servo[0].attach(servopin[0],settings[3],settings[2]);  // ServoPIN, MIN, MAX
+      servo[1].attach(servopin[1],settings[3],settings[2]);  // ServoPIN, MIN, MAX
+      servo[2].attach(servopin[2],settings[3],settings[2]);  // ServoPIN, MIN, MAX
+      servo[3].attach(servopin[3],settings[3],settings[2]);  // ServoPIN, MIN, MAX
+      servo[4].attach(servopin[4],settings[3],settings[2]);  // ServoPIN, MIN, MAX
       SetupMenu = true;
     }
     
@@ -503,10 +527,24 @@ switch (Menu) {
       Menu = 1; 
       SetupMenu = false;
       servo[0].detach();
+      servo[1].detach();
+      servo[2].detach();
+      servo[3].detach();
+      servo[4].detach();
+      servocount = 0;
     }
 
      if(buttonState == 2){
       servo_pos[servocount] = settings[4];    //Servo Mitte 
+    }
+
+     if(buttonState == 3){
+      servocount++;    //Servo +
+    }    
+
+    if (servocount > 4) 
+    {
+       servocount = 0;
     }
     break;
   case 20:   // Impuls in
@@ -558,6 +596,7 @@ switch (Menu) {
     if(buttonState == 1){
       Menu = 2; 
       SetupMenu = false;
+      servocount = 0;
     }
 
     if(buttonState == 2){
@@ -774,7 +813,7 @@ switch (Menu) {
     }
         
     if(buttonState == 1){
-      Menu = 4; 
+      Menu = 5; 
       SetupMenu = false;
     }
 
