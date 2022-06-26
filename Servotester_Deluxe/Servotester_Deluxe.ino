@@ -27,7 +27,7 @@
 #include <EEPROM.h>
 #include "sbus.h"
 
-const float Version = 0.3; // Software Version
+const float Version = 0.4; // Software Version
 
 // EEprom
 #define EEPROM_SIZE 20
@@ -68,28 +68,60 @@ bfs::SbusRx sbus_rx(&Serial2); // Sbus auf Serial2
 
 std::array<int16_t, bfs::SbusRx::NUM_CH()> sbus_data;
 
-//-Menu 30 Multiwitch Futaba lesen
+//Menüstruktur
+/* 
+ * 1 = Servotester_Auswahl       Auswahl -> 10 Servotester_Menu 
+ * 2 = Automatik_Modus_Auswahl   Auswahl -> 20 Automatik_Modus_Menu
+ * 3 = Impuls_lesen_Auswahl      Auswahl -> 30 Impuls_lesen_Menu
+ * 4 = Multiswitch_lesen_Auswahl Auswahl -> 40 Multiswitch_lesen_Menu
+ * 5 = SBUS_lesen_Auswahl        Auswahl -> 50 SBUS_lesen_Menu
+ * 6 = Einstellung_Auswahl       Auswahl -> 60 Einstellung_Menu
+ */
+enum
+{
+  Servotester_Auswahl = 1,
+  Automatik_Modus_Auswahl = 2,
+  Impuls_lesen_Auswahl = 3,
+  Multiswitch_lesen_Auswahl = 4,
+  SBUS_lesen_Auswahl = 5, 
+  Einstellung_Auswahl = 6,
+  //
+  Servotester_Menu = 10,
+  Automatik_Modus_Menu = 20,
+  Impuls_lesen_Menu = 30,
+  Multiswitch_lesen_Menu = 40,
+  SBUS_lesen_Menu = 50,
+  Einstellung_Menu = 60
+};
+
+//-Menu 20 Automatik Modus
+
+int Autopos[5];    //Speicher
+bool Auto_Pause = 0; //Pause im Auto Modus
+
+//-Menu 40 Multiwitch Futaba lesen
 
 #define kanaele 9       //Anzahl der Kanäle
 int value1[kanaele];    //Speicher
 
-//-Menu 20 Impuls lesen
+//-Menu 30 Impuls lesen
 int Impuls_min = 1000;
 int Impuls_max = 2000;
 
 //-Menu
-int Menu = 1;             // Aktives Menu
-bool SetupMenu = false;   // Zustand Setupmenu
-int Einstellung =0 ;      // Aktives Einstellungsmenu
-bool Edit = false;        // Einstellungen ausgewählt
+int Menu = Servotester_Auswahl; // Aktives Menu
+bool SetupMenu = false;         // Zustand Setupmenu
+int Einstellung =0 ;            // Aktives Einstellungsmenu
+bool Edit = false;              // Einstellungen ausgewählt
 
 SSD1306Wire display(0x3c, SDA, SCL);   // Oled Hardware an SDA 21 und SCL 22  
 
 // Startlogo
 #include "images.h"
 
-// Wlan Einstellungen Client Modus
-#include "credentials.h"
+// Wlan Einstellungen AP Modus
+const char* ssid     = "Servotester_Deluxe";
+const char* password = "123456789";
 
 // Webserver auf Port 80
 WiFiServer server(80);
@@ -103,7 +135,10 @@ int pos1 = 0;
 int pos2 = 0;
 
 unsigned long currentTime = millis();   // Aktuelle Zeit
+unsigned long currentTimeAuto = millis();   // Aktuelle Zeit
 unsigned long previousTime = 0;         // Previous time
+unsigned long previousTimeAuto = 0;     // Previous time
+unsigned long TimeAuto = 0;     // Auto time
 const long timeoutTime = 2000;          // Define timeout time in milliseconds (example: 2000ms = 2s)
 
 // ======== Setup  =======================================
@@ -144,52 +179,48 @@ void setup() {
   delay(1000);
 
   if (settings[0] == 1) {     //Wifi Ein
-    // Connect to Wi-Fi network with SSID and password
-    Serial.print("Connecting to ");
-    Serial.println(ssid);
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) {   //10 Sekunden
-      delay(500);
-      Serial.print(".");
-      if ((millis())>=10000)
-      {
-        break;
-      }
-    }
-
-    if (WiFi.status() == WL_CONNECTED)
-    {
     // Print local IP address and start web server
-      Serial.println("");
-      Serial.println("WiFi connected.");
-      Serial.println("IP address: ");
-      Serial.println(WiFi.localIP());
+    Serial.print("AP (Zugangspunkt) einstellen…");
+    WiFi.softAP(ssid, password);
 
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_LEFT);
-      display.setFont(ArialMT_Plain_16);
-      display.drawString(0, 10, "WiFi connected.");
-      display.drawString(0, 26, "IP address: ");
-      display.drawString(0, 42, WiFi.localIP().toString());
-      display.display();
-      delay(2000);
+    IPAddress IP = WiFi.softAPIP();
+    Serial.print("AP-IP-Adresse: ");
+    Serial.println(IP);
+
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(0, 10, "WiFi on.");
+    display.drawString(0, 26, "IP address: ");
+    display.drawString(0, 42, IP.toString());
+    display.display();
+    delay(2000);
+
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(0, 0, "SSID: ");
+    display.drawString(0, 16, ssid);
+    display.drawString(0, 32, "Password: ");
+    display.drawString(0, 48, password);
+    display.display();
+    delay(3000);
   
-      server.begin();
+    server.begin();  // Start Webserver
     }
     else
     {
       Serial.println("");
-      Serial.println("WiFi not connected.");
+      Serial.println("WiFi off.");
 
       display.clear();
       display.setTextAlignment(TEXT_ALIGN_LEFT);
       display.setFont(ArialMT_Plain_16);
       display.drawString(0, 10, "WiFi");
-      display.drawString(0, 26, "not connected.");
+      display.drawString(0, 26, "off.");
       display.display();
       delay(2000);
     }
-  }
   
   display.clear();
   display.setTextAlignment(TEXT_ALIGN_CENTER);
@@ -240,52 +271,322 @@ void loop(){
             client.println("Connection: close");
             client.println();
 
-            //HTML Seite angezeigen:
-            client.println("<!DOCTYPE html><html>");
-            client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-            client.println("<link rel=\"icon\" href=\"data:,\">");
-            // Es folgen der CSS-Code um die Ein/Aus Buttons zu gestalten
-            // Hier können Sie die Hintergrundfarge (background-color) und Schriftgröße (font-size) anpassen
-            client.println("<style>body { text-align: center; font-family: \"Trebuchet MS\", Arial; margin-left:auto; margin-right:auto;}");
-            client.println(".button { background-color: #333344; border: none; color: white; padding: 16px 40px;");
-            client.println(".slider { width: 300px; }</style>");
-            client.println("<script src=\"https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js\"></script>");
-                     
-            // Webseiten-Überschrift
-            client.println("</head><body><h1>Servotester Deluxe</h1>");
-            
-            client.println("<p>Position: <span id=\"servoPos\"></span></p>");          
-            client.println("<input type=\"range\" min=\""+String(settings[3], DEC)+"\" max=\""+String(settings[2], DEC)+"\" class=\"slider\" id=\"servoSlider\" onchange=\"servo(this.value)\" value=\""+valueString+"\"/>");
-            
-            client.println("<script>var slider = document.getElementById(\"servoSlider\");");
-            client.println("var servoP = document.getElementById(\"servoPos\"); servoP.innerHTML = slider.value;");
-            client.println("slider.oninput = function() { slider.value = this.value; servoP.innerHTML = this.value; }");
-            client.println("$.ajaxSetup({timeout:1000}); function servo(pos) { ");
-            client.println("$.get(\"/?value=\" + pos + \"&\"); {Connection: close};}</script>");
+            // Webseiten Eingaben abfragen
 
-            //Button erstellen und link zum aufrufen erstellen 
-            client.println("<p><a href=\"/5/on\"><button class=\"button\">Mitte</button></a></p>");
-           
-            client.println("</body></html>");     
-            
-            //GET /?value=180& HTTP/1.1
-            if(header.indexOf("GET /?value=")>=0) {
+                        //GET /?value=180& HTTP/1.1
+            if(header.indexOf("GET /?Pos0=")>=0) {
               pos1 = header.indexOf('=');
               pos2 = header.indexOf('&');
               valueString = header.substring(pos1+1, pos2);
-              
-              //Rotate the servo
-              //servo1.write(valueString.toInt());
-              //encoder.setCount(valueString.toInt());
-              servo_pos[servocount] = (valueString.toInt());
+              servo_pos[0] = (valueString.toInt());
             }
-            else if (header.indexOf("GET /5/on") >= 0) 
+            if(header.indexOf("GET /?Pos1=")>=0) {
+              pos1 = header.indexOf('=');
+              pos2 = header.indexOf('&');
+              valueString = header.substring(pos1+1, pos2);
+              servo_pos[1] = (valueString.toInt());
+            }
+            if(header.indexOf("GET /?Pos2=")>=0) {
+              pos1 = header.indexOf('=');
+              pos2 = header.indexOf('&');
+              valueString = header.substring(pos1+1, pos2);
+              servo_pos[2] = (valueString.toInt());
+            }
+            if(header.indexOf("GET /?Pos3=")>=0) {
+              pos1 = header.indexOf('=');
+              pos2 = header.indexOf('&');
+              valueString = header.substring(pos1+1, pos2);
+              servo_pos[3] = (valueString.toInt());
+            }
+            if(header.indexOf("GET /?Pos4=")>=0) {
+              pos1 = header.indexOf('=');
+              pos2 = header.indexOf('&');
+              valueString = header.substring(pos1+1, pos2);
+              servo_pos[4] = (valueString.toInt());
+            }
+            if(header.indexOf("GET /?Set1=")>=0) {
+              pos1 = header.indexOf('=');
+              pos2 = header.indexOf('&');
+              valueString = header.substring(pos1+1, pos2);
+              settings[1] = (valueString.toInt());
+            }
+            if(header.indexOf("GET /?Set2=")>=0) {
+              pos1 = header.indexOf('=');
+              pos2 = header.indexOf('&');
+              valueString = header.substring(pos1+1, pos2);
+              settings[2] = (valueString.toInt());
+            }
+            if(header.indexOf("GET /?Set3=")>=0) {
+              pos1 = header.indexOf('=');
+              pos2 = header.indexOf('&');
+              valueString = header.substring(pos1+1, pos2);
+              settings[3] = (valueString.toInt());
+            }
+            if(header.indexOf("GET /?Set4=")>=0) {
+              pos1 = header.indexOf('=');
+              pos2 = header.indexOf('&');
+              valueString = header.substring(pos1+1, pos2);
+              if (valueString.toInt() > settings[3]){        //Nur übernehmen wenn > MIN
+                settings[4] = (valueString.toInt());
+              }
+            }
+            if(header.indexOf("GET /?Speed=")>=0) {
+              pos1 = header.indexOf('=');
+              pos2 = header.indexOf('&');
+              valueString = header.substring(pos1+1, pos2);
+              TimeAuto = (valueString.toInt());
+            }
+            if (header.indexOf("GET /mitte1/on") >= 0) 
             {
-              //servo1.write(90);
-              //encoder.setCount(90);
-              servo_pos[servocount] = settings[4]; //Mitte
-            }               
-            // The HTTP response ends with another blank line
+              servo_pos[0] = settings[4]; //Mitte
+            }  
+            if (header.indexOf("GET /mitte2/on") >= 0) 
+            {
+              servo_pos[1] = settings[4]; //Mitte
+            }
+            if (header.indexOf("GET /mitte3/on") >= 0) 
+            {
+              servo_pos[2] = settings[4]; //Mitte
+            }
+            if (header.indexOf("GET /mitte4/on") >= 0) 
+            {
+              servo_pos[3] = settings[4]; //Mitte
+            }
+            if (header.indexOf("GET /mitte5/on") >= 0) 
+            {
+              servo_pos[4] = settings[4]; //Mitte
+            }  
+            if (header.indexOf("GET /back/on") >= 0) 
+            {
+              Menu = Servotester_Auswahl;
+            }
+            if (header.indexOf("GET /10/on") >= 0) 
+            {
+              Menu = Servotester_Menu;
+            } 
+            if (header.indexOf("GET /20/on") >= 0) 
+            {
+              Menu = Automatik_Modus_Menu;
+            }
+            if (header.indexOf("GET /30/on") >= 0) 
+            {
+              Menu = Impuls_lesen_Menu;
+            }
+            if (header.indexOf("GET /40/on") >= 0) 
+            {
+              Menu = Multiswitch_lesen_Menu;
+            }
+            if (header.indexOf("GET /50/on") >= 0) 
+            {
+              Menu = SBUS_lesen_Menu;
+            }
+            if (header.indexOf("GET /60/on") >= 0) 
+            {
+              Menu = Einstellung_Menu;
+            }
+            if (header.indexOf("GET /save/on") >= 0) 
+            {
+              EEprom_Save();
+            }
+            if (header.indexOf("GET /pause/on") >= 0) 
+            {
+              if(Auto_Pause){
+                Auto_Pause=false;
+              }
+              else
+              {
+                Auto_Pause=true;
+              }
+            }
+            
+            //HTML Seite angezeigen:
+            client.println("<!DOCTYPE html><html>");
+            //client.println("<meta http-equiv='refresh' content='5'>");
+            client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+            client.println("<link rel=\"icon\" href=\"data:,\">");
+            // CSS zum Stylen der Ein/Aus-Schaltflächen
+            // Fühlen Sie sich frei, die Attribute für Hintergrundfarbe und Schriftgröße nach Ihren Wünschen zu ändern
+            client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
+            client.println(".button { border: yes; color: white; padding: 10px 40px; width: 100%;");
+            client.println("text-decoration: none; font-size: 20px; margin: 2px; cursor: pointer;}");
+            client.println(".slider { -webkit-appearance: none; width: 100%; height: 25px; background: #d3d3d3; outline: none; opacity: 0.7; -webkit-transition: .2s; transition: opacity .2s; }");
+            client.println(".button1 {background-color: #4CAF50;}");
+            client.println(".button2 {background-color: #ff0000;}");
+            client.println(".textbox {font-size: 25px; text-align: center;}");
+            client.println("</style></head>");   
+                     
+            // Webseiten-Überschrift
+            client.println("</head><body><h1>Servotester Deluxe</h1>");
+
+            switch (Menu) {
+              case Servotester_Menu:
+                  client.println("<h2>Servotester</h2>");
+                  //Servo1
+                  valueString = String(servo_pos[0], DEC);
+
+                  client.println("<p><h3>Servo 1 Mikrosekunden : <span id=\"textServo1SliderValue\">" + valueString + "</span>");
+                  client.println("<a href=\"/mitte1/on\"><button class=\"button button1\">Mitte</button></a></p>");
+
+                  client.println("<input type=\"range\" min=\""+String(settings[3], DEC)+"\" max=\""+String(settings[2], DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo1Slider\" onchange=\"Servo1Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+
+                  client.println("<script> function Servo1Speed(pos) { ");
+                  client.println("var sliderValue = document.getElementById(\"Servo1Slider\").value;");
+                  client.println("document.getElementById(\"textServo1SliderValue\").innerHTML = sliderValue;");
+                  client.println("var xhr = new XMLHttpRequest();");
+                  client.println("xhr.open('GET', \"/?Pos0=\" + pos + \"&\", true);");
+                  client.println("xhr.send(); } </script>");
+                  //Servo2
+                  valueString = String(servo_pos[1], DEC);
+
+                  client.println("<p><h3>Servo 2 Mikrosekunden : <span id=\"textServo2SliderValue\">" + valueString + "</span>");
+                  client.println("<a href=\"/mitte2/on\"><button class=\"button button1\">Mitte</button></a></p>");
+
+                  client.println("<input type=\"range\" min=\""+String(settings[3], DEC)+"\" max=\""+String(settings[2], DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo2Slider\" onchange=\"Servo2Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+
+                  client.println("<script> function Servo2Speed(pos) { ");
+                  client.println("var sliderValue = document.getElementById(\"Servo2Slider\").value;");
+                  client.println("document.getElementById(\"textServo2SliderValue\").innerHTML = sliderValue;");
+                  client.println("var xhr = new XMLHttpRequest();");
+                  client.println("xhr.open('GET', \"/?Pos1=\" + pos + \"&\", true);");
+                  client.println("xhr.send(); } </script>");
+                  //Servo3
+                  valueString = String(servo_pos[2], DEC);
+
+                  client.println("<p><h3>Servo 3 Mikrosekunden : <span id=\"textServo3SliderValue\">" + valueString + "</span>");
+                  client.println("<a href=\"/mitte3/on\"><button class=\"button button1\">Mitte</button></a></p>");
+
+                  client.println("<input type=\"range\" min=\""+String(settings[3], DEC)+"\" max=\""+String(settings[2], DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo3Slider\" onchange=\"Servo3Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+
+                  client.println("<script> function Servo3Speed(pos) { ");
+                  client.println("var sliderValue = document.getElementById(\"Servo3Slider\").value;");
+                  client.println("document.getElementById(\"textServo3SliderValue\").innerHTML = sliderValue;");
+                  client.println("var xhr = new XMLHttpRequest();");
+                  client.println("xhr.open('GET', \"/?Pos2=\" + pos + \"&\", true);");
+                  client.println("xhr.send(); } </script>");
+                  //Servo4
+                  valueString = String(servo_pos[3], DEC);
+
+                  client.println("<p><h3>Servo 4 Mikrosekunden : <span id=\"textServo4SliderValue\">" + valueString + "</span>");
+                  client.println("<a href=\"/mitte4/on\"><button class=\"button button1\">Mitte</button></a></p>");
+
+                  client.println("<input type=\"range\" min=\""+String(settings[3], DEC)+"\" max=\""+String(settings[2], DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo4Slider\" onchange=\"Servo4Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+
+                  client.println("<script> function Servo4Speed(pos) { ");
+                  client.println("var sliderValue = document.getElementById(\"Servo4Slider\").value;");
+                  client.println("document.getElementById(\"textServo4SliderValue\").innerHTML = sliderValue;");
+                  client.println("var xhr = new XMLHttpRequest();");
+                  client.println("xhr.open('GET', \"/?Pos3=\" + pos + \"&\", true);");
+                  client.println("xhr.send(); } </script>");
+                  //Servo5
+                  valueString = String(servo_pos[4], DEC);
+
+                  client.println("<p><h3>Servo 5 Mikrosekunden : <span id=\"textServo5SliderValue\">" + valueString + "</span>");
+                  client.println("<a href=\"/mitte5/on\"><button class=\"button button1\">Mitte</button></a></p>");
+
+                  client.println("<input type=\"range\" min=\""+String(settings[3], DEC)+"\" max=\""+String(settings[2], DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo5Slider\" onchange=\"Servo5Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+
+                  client.println("<script> function Servo5Speed(pos) { ");
+                  client.println("var sliderValue = document.getElementById(\"Servo5Slider\").value;");
+                  client.println("document.getElementById(\"textServo5SliderValue\").innerHTML = sliderValue;");
+                  client.println("var xhr = new XMLHttpRequest();");
+                  client.println("xhr.open('GET', \"/?Pos4=\" + pos + \"&\", true);");
+                  client.println("xhr.send(); } </script>");                                    
+                  //Button erstellen und link zum aufrufen erstellen 
+                                 
+                  client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
+                  
+                  break;
+
+              case Automatik_Modus_Menu:
+                  client.println("<h2>Automatik Modus</h2>");
+
+                  valueString = String(TimeAuto, DEC);
+
+                  client.println("<p><h3>Servo Geschwindigkeit : <span id=\"textServoSpeedValue\">" + valueString + "</span>");
+
+                  client.println("<input type=\"range\" min=\"5\" max=\"100\" step=\"5\" class=\"slider\" id=\"ServoSpeedAuto\" onchange=\"ServoSpeed(this.value)\" value=\"" + valueString + "\" /></p>");
+
+                  client.println("<script> function ServoSpeed(pos) { ");
+                  client.println("var sliderValue = document.getElementById(\"ServoSpeedAuto\").value;");
+                  client.println("document.getElementById(\"textServoSpeedValue\").innerHTML = sliderValue;");
+                  client.println("var xhr = new XMLHttpRequest();");
+                  client.println("xhr.open('GET', \"/?Speed=\" + pos + \"&\", true);");
+                  client.println("xhr.send(); } </script>");       
+
+                  client.println("<p><a href=\"/pause/on\"><button class=\"button button1\">Pause</button></a></p>");
+                  client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
+                  break;
+                  
+             case Einstellung_Menu:
+                  client.println("<h2>Einstellung</h2>");
+
+                  valueString = String(settings[1], DEC);
+                
+                  client.println("<p><h3>Servo Steps : <span id=\"textSetting1Value\">" + valueString + "</span>");
+                  client.println("<input type=\"text\" id=\"Setting1Input\" class=\"textbox\" oninput=\"Setting1change(this.value)\" value=\"" + valueString + "\" /></p>");
+                  
+                  client.println("<script> function Setting1change(pos) { ");
+                  client.println("var sliderValue = document.getElementById(\"Setting1Input\").value;");
+                  client.println("document.getElementById(\"textSetting1Value\").innerHTML = sliderValue;");
+                  client.println("var xhr = new XMLHttpRequest();");
+                  client.println("xhr.open('GET', \"/?Set1=\" + pos + \"&\", true);");
+                  client.println("xhr.send(); } </script>");
+
+                  valueString = String(settings[2], DEC);
+                
+                  client.println("<p><h3>Servo MAX : <span id=\"textSetting2Value\">" + valueString + "</span>");
+                  client.println("<input type=\"text\" id=\"Setting2Input\" class=\"textbox\" oninput=\"Setting2change(this.value)\" value=\"" + valueString + "\" /></p>");
+                  
+                  client.println("<script> function Setting2change(pos) { ");
+                  client.println("var sliderValue = document.getElementById(\"Setting2Input\").value;");
+                  client.println("document.getElementById(\"textSetting2Value\").innerHTML = sliderValue;");
+                  client.println("var xhr = new XMLHttpRequest();");
+                  client.println("xhr.open('GET', \"/?Set2=\" + pos + \"&\", true);");
+                  client.println("xhr.send(); } </script>");
+
+                  valueString = String(settings[3], DEC);
+                
+                  client.println("<p><h3>Servo MIN : <span id=\"textSetting3Value\">" + valueString + "</span>");
+                  client.println("<input type=\"text\" id=\"Setting3Input\" class=\"textbox\" oninput=\"Setting3change(this.value)\" value=\"" + valueString + "\" /></p>");
+                  
+                  client.println("<script> function Setting3change(pos) { ");
+                  client.println("var sliderValue = document.getElementById(\"Setting3Input\").value;");
+                  client.println("document.getElementById(\"textSetting3Value\").innerHTML = sliderValue;");
+                  client.println("var xhr = new XMLHttpRequest();");
+                  client.println("xhr.open('GET', \"/?Set3=\" + pos + \"&\", true);");
+                  client.println("xhr.send(); } </script>");
+
+                  valueString = String(settings[4], DEC);
+                
+                  client.println("<p><h3>Servo Mitte : <span id=\"textSetting4Value\">" + valueString + "</span>");
+                  client.println("<input type=\"text\" id=\"Setting4Input\" class=\"textbox\" oninput=\"Setting4change(this.value)\" value=\"" + valueString + "\" /></p>");
+                  
+                  client.println("<script> function Setting4change(pos) { ");
+                  client.println("var sliderValue = document.getElementById(\"Setting4Input\").value;");
+                  client.println("document.getElementById(\"textSetting4Value\").innerHTML = sliderValue;");
+                  client.println("var xhr = new XMLHttpRequest();");
+                  client.println("xhr.open('GET', \"/?Set4=\" + pos + \"&\", true);");
+                  client.println("xhr.send(); } </script>");
+
+
+                  client.println("<p><a href=\"/save/on\"><button class=\"button button1\">Speichern</button></a></p>");
+                  client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
+                  break;
+                  
+              default:
+                  client.println("<h2>Menu</h2>");
+                  client.println("<p><a href=\"/10/on\"><button class=\"button button1\">Servotester</button></a></p>");
+                  client.println("<p><a href=\"/20/on\"><button class=\"button button1\">Automatik Modus</button></a></p>");
+                  client.println("<p><a href=\"/30/on\"><button class=\"button button1\">Impuls lesen</button></a></p>");
+                  client.println("<p><a href=\"/40/on\"><button class=\"button button1\">Multiswitch lesen</button></a></p>");
+                  client.println("<p><a href=\"/50/on\"><button class=\"button button1\">SBUS lesen</button></a></p>");
+                  client.println("<p><a href=\"/60/on\"><button class=\"button button1\">Einstellung</button></a></p>");
+                  break; // Wird nicht benötigt, wenn Statement(s) vorhanden sind
+            }
+
+            client.println("</body></html>");     
+                    
+            // Die HTTP-Antwort endet mit einer weiteren Leerzeile
             client.println();
             // Break out of the while loop
             break;
@@ -297,13 +598,13 @@ void loop(){
         }
       }
     }
-    // Clear the header variable
+    // header löschen
     header = "";
-    // Close the connection
+    // Schließen Sie die Verbindung
     client.stop();
     Serial.println("Client disconnected.");
     Serial.println("");
-  }
+    }
 }
 }
 
@@ -374,16 +675,17 @@ void ButtonRead(){
 
 // ======== MenuUpdate  =======================================
 /* 
- * 1 = Servotester       Auswahl -> 10 Servotesterz
- * 2 = Impuls lesen      Auswahl -> 20 Impuls lesen
- * 3 = Multiswitch lesen Auswahl -> 30 Multiswitch lesen
- * 4 = SBUS lesen        Auswahl -> 40 SBUS lesen
- * 5 = Einstellung       Auswahl -> 50 Einstellung
+ * 1 = Servotester       Auswahl -> 10 Servotester
+ * 2 = Automatik Modus   Auswahl -> 20 Automatik Modus
+ * 3 = Impuls lesen      Auswahl -> 30 Impuls lesen
+ * 4 = Multiswitch lesen Auswahl -> 40 Multiswitch lesen
+ * 5 = SBUS lesen        Auswahl -> 50 SBUS lesen
+ * 6 = Einstellung       Auswahl -> 60 Einstellung
  */
 void MenuUpdate(){
 
 switch (Menu) {
-  case 1: 
+  case Servotester_Auswahl: 
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -400,10 +702,30 @@ switch (Menu) {
     }
     
     if(buttonState == 2){
-      Menu = 10;
+      Menu = Servotester_Menu;
     }
     break;
-  case 2: 
+  case Automatik_Modus_Auswahl: 
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu >" );
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25,"Automatik Modus" );
+    display.display();
+          
+    if (encoderState == 1){
+      Menu--;
+    }
+    if (encoderState == 2){
+      Menu++;
+    }
+    
+    if(buttonState == 2){
+      Menu = Automatik_Modus_Menu;
+    }
+    break;  
+  case Impuls_lesen_Auswahl: 
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -420,10 +742,11 @@ switch (Menu) {
     }
        
     if(buttonState == 2){
-      Menu = 20;
+      Menu = Impuls_lesen_Menu;
     }
     break;  
-  case 3: 
+    
+  case Multiswitch_lesen_Auswahl: 
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -441,10 +764,11 @@ switch (Menu) {
     }
        
     if(buttonState == 2){
-      Menu = 30;
+      Menu = Multiswitch_lesen_Menu;
     }
     break;
-  case 4: 
+    
+  case SBUS_lesen_Auswahl: 
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -461,10 +785,11 @@ switch (Menu) {
     }
        
     if(buttonState == 2){
-      Menu = 40;
+      Menu = SBUS_lesen_Menu;
     }
     break;
-  case 5: 
+    
+  case Einstellung_Auswahl: 
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -477,15 +802,15 @@ switch (Menu) {
       Menu--;
     }
     if (encoderState == 2){
-      Menu=5;
+      Menu=6;
     }
        
     if(buttonState == 2){
-      Menu = 50;
+      Menu = Einstellung_Menu;
     }
     break;
  
-  case 10:
+  case Servotester_Menu:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -505,7 +830,11 @@ switch (Menu) {
       SetupMenu = true;
     }
     
-    servo[servocount].writeMicroseconds(servo_pos[servocount]);
+    servo[0].writeMicroseconds(servo_pos[0]);
+    servo[1].writeMicroseconds(servo_pos[1]);
+    servo[2].writeMicroseconds(servo_pos[2]);
+    servo[3].writeMicroseconds(servo_pos[3]);
+    servo[4].writeMicroseconds(servo_pos[4]);
      
     if (encoderState == 1){
       servo_pos[servocount] = servo_pos[servocount] - settings[1] ;
@@ -524,7 +853,7 @@ switch (Menu) {
     } 
     
     if(buttonState == 1){
-      Menu = 1; 
+      Menu = Servotester_Auswahl; 
       SetupMenu = false;
       servo[0].detach();
       servo[1].detach();
@@ -547,7 +876,122 @@ switch (Menu) {
        servocount = 0;
     }
     break;
-  case 20:   // Impuls in
+    
+  case Automatik_Modus_Menu:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "Servo" + String(servocount+1));
+    display.drawString(64, 25, String(servo_pos[servocount]) + "µs");
+    if (Auto_Pause){
+      display.setFont(ArialMT_Plain_16);
+      display.drawString(64, 48, "Pause");
+    }
+    else
+    {
+      display.drawProgressBar(8, 50, 112, 10, (((servo_pos[servocount]-settings[3])*100)/(settings[2]-settings[3])));
+    }
+    display.display();
+    if (!SetupMenu)
+    {
+      servo[0].attach(servopin[0],settings[3],settings[2]);  // ServoPIN, MIN, MAX
+      servo[1].attach(servopin[1],settings[3],settings[2]);  // ServoPIN, MIN, MAX
+      servo[2].attach(servopin[2],settings[3],settings[2]);  // ServoPIN, MIN, MAX
+      servo[3].attach(servopin[3],settings[3],settings[2]);  // ServoPIN, MIN, MAX
+      servo[4].attach(servopin[4],settings[3],settings[2]);  // ServoPIN, MIN, MAX
+      TimeAuto = 50;    //Zeit für SERVO Steps +-
+      Auto_Pause = false; //Pause aus
+      SetupMenu = true;
+    }
+    
+    currentTimeAuto = millis();
+    if (!Auto_Pause){
+      if ((currentTimeAuto - previousTimeAuto) > TimeAuto){
+        previousTimeAuto = currentTimeAuto;
+        if (Autopos[servocount] > 1500){
+          servo_pos[servocount] = servo_pos[servocount] + settings[1];
+        }
+        else
+        {
+          servo_pos[servocount] = servo_pos[servocount] - settings[1];
+        }
+      }
+    }
+
+    if (servo_pos[servocount] < settings[3]){
+      Autopos[servocount] = settings[2];
+      servo_pos[servocount] = settings[3];
+    }
+    if (servo_pos[servocount] > settings[2]){
+      Autopos[servocount] = settings[3];
+      servo_pos[servocount] = settings[2];
+    }
+
+    servo[servocount].writeMicroseconds(servo_pos[servocount]);
+    
+    if (encoderState == 1){
+      if (Auto_Pause){
+        servo_pos[servocount] = servo_pos[servocount] - settings[1] ;
+      }
+      else
+      {
+        TimeAuto--;
+      }
+    }
+    if (encoderState == 2){
+      if (Auto_Pause){
+        servo_pos[servocount] = servo_pos[servocount] + settings[1] ;
+      }
+      else
+      {
+        TimeAuto++;
+      }
+    }
+
+    if (TimeAuto > 100)   //TimeAuto MAX
+    {
+       TimeAuto = 100;
+    }
+    else if (TimeAuto < 5)  //TimeAuto MIN
+    {
+       TimeAuto = 5;
+    } 
+
+    if (servocount > 4) 
+    {
+       servocount = 4;
+    }
+    else if (servocount < 0) 
+    {
+       servocount = 0;
+    } 
+    
+    if(buttonState == 1){
+      Menu = Automatik_Modus_Auswahl; 
+      SetupMenu = false;
+      servo[0].detach();
+      servo[1].detach();
+      servo[2].detach();
+      servo[3].detach();
+      servo[4].detach();
+      servocount = 0;
+    }
+
+     if(buttonState == 2){
+      Auto_Pause = !Auto_Pause;
+    }
+
+     if(buttonState == 3){
+      servocount++;    //Servo +
+    }    
+
+    if (servocount > 4) 
+    {
+       servocount = 0;
+    }
+    break;    
+  
+  case Impuls_lesen_Menu:   
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -594,7 +1038,7 @@ switch (Menu) {
     } 
     
     if(buttonState == 1){
-      Menu = 2; 
+      Menu = Impuls_lesen_Auswahl; 
       SetupMenu = false;
       servocount = 0;
     }
@@ -605,7 +1049,7 @@ switch (Menu) {
     }
     break;    
 
-  case 30:   // Futaba Multiswitch in
+  case Multiswitch_lesen_Menu:   
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_LEFT);
     display.setFont(ArialMT_Plain_10);
@@ -642,7 +1086,7 @@ switch (Menu) {
     }
     
     if(buttonState == 1){
-      Menu = 3; 
+      Menu = Multiswitch_lesen_Auswahl; 
       SetupMenu = false;
     }
 
@@ -651,7 +1095,7 @@ switch (Menu) {
     }
     break;
 
-    case 40:   // Sbus
+  case SBUS_lesen_Menu:   
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_RIGHT);
     display.setFont(ArialMT_Plain_10);
@@ -695,7 +1139,7 @@ switch (Menu) {
     }
     
     if(buttonState == 1){
-      Menu = 4; 
+      Menu = SBUS_lesen_Auswahl; 
       SetupMenu = false;
     }
 
@@ -704,7 +1148,7 @@ switch (Menu) {
     }
     break;
 
-  case 50:   // Einstellung
+  case Einstellung_Menu:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -747,7 +1191,6 @@ switch (Menu) {
       SetupMenu = true;
     }
     
-
     if (encoderState == 1){
       if (!Edit) {    
       Einstellung--;
@@ -813,11 +1256,11 @@ switch (Menu) {
     }
         
     if(buttonState == 1){
-      Menu = 5; 
+      Menu = Einstellung_Auswahl; 
       SetupMenu = false;
     }
 
-     if(buttonState == 2){
+    if(buttonState == 2){
       if (Edit) {
         Edit = false;
         //Speichern
@@ -834,7 +1277,7 @@ switch (Menu) {
   default:
     // Tue etwas, im Defaultfall
     // Dieser Fall ist optional
-    Menu = 1; 
+    Menu = Servotester_Auswahl; 
     break; // Wird nicht benötigt, wenn Statement(s) vorhanden sind
 }
 
