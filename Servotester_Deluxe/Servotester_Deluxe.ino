@@ -22,23 +22,29 @@
 
 #include <WiFi.h>
 #include <ESP32Servo.h>
-#include "SSD1306Wire.h" 
 #include <ESP32Encoder.h>
 #include <EEPROM.h>
 #include "sbus.h"
+#include <IBusBM.h>
 
-const float Version = 0.4; // Software Version
+#include <SH1106Wire.h>  //1.3 Zoll
+#include "SSD1306Wire.h"
+
+const float Version = 0.5; // Software Version
+
+//#define OLED1306
 
 // EEprom
-#define EEPROM_SIZE 20
+#define EEPROM_SIZE 24
 
 #define adr_eprom_WIFI_ON 0                     // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_SERVO_STEPS 4                 // SERVO Steps für Encoder im Servotester Modus
 #define adr_eprom_SERVO_MAX 8                   // SERVO µs Max Wert im Servotester Modus
 #define adr_eprom_SERVO_MIN 12                  // SERVO µs Min Wert im Servotester Modus
 #define adr_eprom_SERVO_Mitte 16                // SERVO µs Mitte Wert im Servotester Modus
+#define adr_eprom_SERVO_Hz 20                // SERVO µs Mitte Wert im Servotester Modus
 
-int settings[5]; //Speicher der Einstellungen
+int settings[6]; //Speicher der Einstellungen
 
 //Encoder + Taster
 ESP32Encoder encoder;
@@ -68,6 +74,9 @@ bfs::SbusRx sbus_rx(&Serial2); // Sbus auf Serial2
 
 std::array<int16_t, bfs::SbusRx::NUM_CH()> sbus_data;
 
+// IBUS
+IBusBM IBus;    // IBus object
+
 //Menüstruktur
 /* 
  * 1 = Servotester_Auswahl       Auswahl -> 10 Servotester_Menu 
@@ -83,15 +92,17 @@ enum
   Automatik_Modus_Auswahl = 2,
   Impuls_lesen_Auswahl = 3,
   Multiswitch_lesen_Auswahl = 4,
-  SBUS_lesen_Auswahl = 5, 
-  Einstellung_Auswahl = 6,
+  SBUS_lesen_Auswahl = 5,
+  IBUS_lesen_Auswahl = 6, 
+  Einstellung_Auswahl = 7,
   //
   Servotester_Menu = 10,
   Automatik_Modus_Menu = 20,
   Impuls_lesen_Menu = 30,
   Multiswitch_lesen_Menu = 40,
   SBUS_lesen_Menu = 50,
-  Einstellung_Menu = 60
+  IBUS_lesen_Menu = 60,
+  Einstellung_Menu = 70
 };
 
 //-Menu 20 Automatik Modus
@@ -114,7 +125,11 @@ bool SetupMenu = false;         // Zustand Setupmenu
 int Einstellung =0 ;            // Aktives Einstellungsmenu
 bool Edit = false;              // Einstellungen ausgewählt
 
+#ifdef OLED1306
 SSD1306Wire display(0x3c, SDA, SCL);   // Oled Hardware an SDA 21 und SCL 22  
+#else
+SH1106Wire display(0x3c, SDA, SCL);   // Oled Hardware an SDA 21 und SCL 22  
+#endif
 
 // Startlogo
 #include "images.h"
@@ -138,7 +153,7 @@ unsigned long currentTime = millis();   // Aktuelle Zeit
 unsigned long currentTimeAuto = millis();   // Aktuelle Zeit
 unsigned long previousTime = 0;         // Previous time
 unsigned long previousTimeAuto = 0;     // Previous time
-unsigned long TimeAuto = 0;     // Auto time
+unsigned long TimeAuto = 50;     // Auto time
 const long timeoutTime = 2000;          // Define timeout time in milliseconds (example: 2000ms = 2s)
 
 // ======== Setup  =======================================
@@ -788,6 +803,27 @@ switch (Menu) {
       Menu = SBUS_lesen_Menu;
     }
     break;
+
+  case IBUS_lesen_Auswahl: 
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu >" );
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25,"IBUS lesen" );
+    display.display();
+          
+    if (encoderState == 1){
+      Menu--;
+    }
+    if (encoderState == 2){
+      Menu++;
+    }
+       
+    if(buttonState == 2){
+      Menu = IBUS_lesen_Menu;
+    }
+    break;    
     
   case Einstellung_Auswahl: 
     display.clear();
@@ -802,7 +838,7 @@ switch (Menu) {
       Menu--;
     }
     if (encoderState == 2){
-      Menu=6;
+      Menu=Einstellung_Auswahl;
     }
        
     if(buttonState == 2){
@@ -812,6 +848,10 @@ switch (Menu) {
  
   case Servotester_Menu:
     display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(0, 0, "HZ");
+    display.drawString(0, 10, String(settings[5]));
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
     display.drawString(64, 0, "Servo" + String(servocount+1));
@@ -827,6 +867,7 @@ switch (Menu) {
       servo[2].attach(servopin[2],settings[3],settings[2]);  // ServoPIN, MIN, MAX
       servo[3].attach(servopin[3],settings[3],settings[2]);  // ServoPIN, MIN, MAX
       servo[4].attach(servopin[4],settings[3],settings[2]);  // ServoPIN, MIN, MAX
+      servo[0].setPeriodHertz(settings[5]);
       SetupMenu = true;
     }
     
@@ -1148,6 +1189,60 @@ switch (Menu) {
     }
     break;
 
+  case IBUS_lesen_Menu:   
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_RIGHT);
+    display.setFont(ArialMT_Plain_10);
+    display.drawString( 32, 0,  String(IBus.readChannel(0)));
+    display.drawString( 64, 0,  String(IBus.readChannel(1)));
+    display.drawString( 96, 0,  String(IBus.readChannel(2)));
+    display.drawString(128, 0,  String(IBus.readChannel(3)));
+
+    display.drawString( 32, 15,  String(IBus.readChannel(4)));
+    display.drawString( 64, 15,  String(IBus.readChannel(5)));
+    display.drawString( 96, 15,  String(IBus.readChannel(6)));
+    display.drawString(128, 15,  String(IBus.readChannel(7)));
+
+    display.drawString( 32, 30,  String(IBus.readChannel(8)));
+    display.drawString( 64, 30,  String(IBus.readChannel(9)));
+    display.drawString( 96, 30,  String(IBus.readChannel(10)));
+    display.drawString(128, 30,  String(IBus.readChannel(11)));
+
+    display.drawString( 32, 45,  String(IBus.readChannel(12)));
+    display.drawString( 64, 45,  String(IBus.readChannel(13)));
+    //display.drawString( 96, 45,  String(IBus.readChannel(14)));
+    //display.drawString(128, 45,  String(IBus.readChannel(15)));
+    display.display();
+    
+    if (!SetupMenu)
+    {
+      IBus.begin(Serial2,IBUSBM_NOTIMER,servopin[0], servopin[1]);    // iBUS object connected to serial2 RX2 pin and use timer 1
+      SetupMenu = true;
+    }
+
+    IBus.loop(); // call internal loop function to update the communication to the receiver 
+  //if (sbus_rx.Read()) {
+  //    sbus_data = sbus_rx.ch();
+  //}
+   
+
+    if (encoderState == 1){
+      
+    }
+    if (encoderState == 2){
+      
+    }
+    
+    if(buttonState == 1){
+      Menu = IBUS_lesen_Auswahl; 
+      SetupMenu = false;
+    }
+
+     if(buttonState == 2){
+      
+    }
+    break;    
+
   case Einstellung_Menu:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
@@ -1180,6 +1275,10 @@ switch (Menu) {
         display.drawString(64, 25,"Servo Mitte µs" );
         display.drawString(64, 45,String(settings[Einstellung]));
         break;   
+      case 5:
+        display.drawString(64, 25,"Servo Hz" );
+        display.drawString(64, 45,String(settings[Einstellung]));
+        break;   
     }
     if (Edit) { 
       display.drawString(10, 45,"->" );
@@ -1210,13 +1309,13 @@ switch (Menu) {
       } 
     }
 
-    if (Einstellung > 4) 
+    if (Einstellung > 5) 
     {
        Einstellung = 0;
     }
     else if (Einstellung < 0) 
     {
-       Einstellung = 4;
+       Einstellung = 5;
     } 
     
     if (settings[0] < 0) {   //Wifi off nicht unter 0
@@ -1254,6 +1353,57 @@ switch (Menu) {
     if (settings[4] < settings[3]) {   //Mitte nicht unter Min
       settings[4] = settings[3] + 1;
     }
+
+    if (settings[5] == 51) {
+      settings[5] = 200;
+    }
+    
+    if (settings[5] == 201) {
+      settings[5] = 333;
+    }
+    
+    if (settings[5] == 334) {
+      settings[5] = 560;
+      settings[2] = 1000;
+      settings[3] = 500;
+      settings[4] = 760;
+    }
+      
+    if (settings[5] == 561) {
+      settings[5] = 50;
+      settings[2] = 2000;
+      settings[3] = 1000;
+      settings[4] = 1500;
+    }
+    
+    if (settings[5] == 49) {
+      settings[5] = 560;
+      settings[2] = 1000;
+      settings[3] = 500;
+      settings[4] = 760;
+    }
+    
+    if (settings[5] == 559) {
+      settings[5] = 333;
+      settings[2] = 2000;
+      settings[3] = 1000;
+      settings[4] = 1500;
+    }      
+    
+    if (settings[5] == 332) {
+      settings[5] = 200;
+    }      
+    
+    if (settings[5] == 199) {
+      settings[5] = 50;
+    }      
+
+    if (settings[5] == 560) {
+      settings[2] = 1000;
+      settings[3] = 500;
+      settings[4] = 760;
+    }  
+    
         
     if(buttonState == 1){
       Menu = Einstellung_Auswahl; 
@@ -1290,6 +1440,7 @@ void EEprom_Load() {
   settings[2] = EEPROM.readInt(adr_eprom_SERVO_MAX);
   settings[3] = EEPROM.readInt(adr_eprom_SERVO_MIN);
   settings[4] = EEPROM.readInt(adr_eprom_SERVO_Mitte);
+  settings[5] = EEPROM.readInt(adr_eprom_SERVO_Hz);
   Serial.println("EEPROM gelesen.");
 }
 
@@ -1299,6 +1450,7 @@ void EEprom_Save() {
   EEPROM.writeInt(adr_eprom_SERVO_MAX, settings[2]);
   EEPROM.writeInt(adr_eprom_SERVO_MIN, settings[3]);
   EEPROM.writeInt(adr_eprom_SERVO_Mitte, settings[4]);
+  EEPROM.writeInt(adr_eprom_SERVO_Hz, settings[5]);
   EEPROM.commit();
   Serial.println("EEPROM gespeichert.");
 }
