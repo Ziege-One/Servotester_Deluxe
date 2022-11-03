@@ -20,6 +20,13 @@
 
 // ======== Servotester Deluxe  =======================================
 
+/* Installierte Bibliotheken
+ESP32Servo                  0.12.0
+ESP32Encoder                0.9.1
+Bolder Flight Systems SBUS  8.1.4
+IBusBM                      1.1.4
+ */
+
 #include <WiFi.h>
 #include <ESP32Servo.h>
 #include <ESP32Encoder.h>
@@ -30,9 +37,9 @@
 #include <SH1106Wire.h>  //1.3 Zoll
 #include "SSD1306Wire.h"
 
-const float Version = 0.5; // Software Version
+const float Version = 0.51; // Software Version
 
-//#define OLED1306
+//#define OLED1306 //0.96 Zoll
 
 // EEprom
 #define EEPROM_SIZE 24
@@ -70,9 +77,9 @@ int servo_pos[5];     // Speicher für Servowerte
 int servocount = 0;   // Zähler für Servowerte
 
 // SBUS
-bfs::SbusRx sbus_rx(&Serial2); // Sbus auf Serial2
+bfs::SbusRx sbus_rx(&Serial2,servopin[0], servopin[0]+1,true); // Sbus auf Serial2
 
-std::array<int16_t, bfs::SbusRx::NUM_CH()> sbus_data;
+bfs::SbusData sbus_data;
 
 // IBUS
 IBusBM IBus;    // IBus object
@@ -176,6 +183,7 @@ void setup() {
       settings[2] = 2000;
       settings[3] = 1000;
       settings[4] = 1500;
+      settings[5] = 50;
   }
 
   // Setup Encoder
@@ -1140,35 +1148,35 @@ switch (Menu) {
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_RIGHT);
     display.setFont(ArialMT_Plain_10);
-    display.drawString( 32, 0,  String(sbus_data[0]));
-    display.drawString( 64, 0,  String(sbus_data[1]));
-    display.drawString( 96, 0,  String(sbus_data[2]));
-    display.drawString(128, 0,  String(sbus_data[3]));
+    display.drawString( 32, 0,  String(sbus_data.ch[0]));
+    display.drawString( 64, 0,  String(sbus_data.ch[1]));
+    display.drawString( 96, 0,  String(sbus_data.ch[2]));
+    display.drawString(128, 0,  String(sbus_data.ch[3]));
 
-    display.drawString( 32, 15,  String(sbus_data[4]));
-    display.drawString( 64, 15,  String(sbus_data[5]));
-    display.drawString( 96, 15,  String(sbus_data[6]));
-    display.drawString(128, 15,  String(sbus_data[7]));
+    display.drawString( 32, 15,  String(sbus_data.ch[4]));
+    display.drawString( 64, 15,  String(sbus_data.ch[5]));
+    display.drawString( 96, 15,  String(sbus_data.ch[6]));
+    display.drawString(128, 15,  String(sbus_data.ch[7]));
 
-    display.drawString( 32, 30,  String(sbus_data[8]));
-    display.drawString( 64, 30,  String(sbus_data[9]));
-    display.drawString( 96, 30,  String(sbus_data[10]));
-    display.drawString(128, 30,  String(sbus_data[11]));
+    display.drawString( 32, 30,  String(sbus_data.ch[8]));
+    display.drawString( 64, 30,  String(sbus_data.ch[9]));
+    display.drawString( 96, 30,  String(sbus_data.ch[10]));
+    display.drawString(128, 30,  String(sbus_data.ch[11]));
 
-    display.drawString( 32, 45,  String(sbus_data[12]));
-    display.drawString( 64, 45,  String(sbus_data[13]));
-    display.drawString( 96, 45,  String(sbus_data[14]));
-    display.drawString(128, 45,  String(sbus_data[15]));
+    display.drawString( 32, 45,  String(sbus_data.ch[12]));
+    display.drawString( 64, 45,  String(sbus_data.ch[13]));
+    display.drawString( 96, 45,  String(sbus_data.ch[14]));
+    display.drawString(128, 45,  String(sbus_data.ch[15]));
     display.display();
     
     if (!SetupMenu)
     {
-      sbus_rx.Begin(servopin[0], servopin[0]+1);
+      sbus_rx.Begin();
       SetupMenu = true;
     }
     
   if (sbus_rx.Read()) {
-      sbus_data = sbus_rx.ch();
+      sbus_data = sbus_rx.data();
   }
    
 
