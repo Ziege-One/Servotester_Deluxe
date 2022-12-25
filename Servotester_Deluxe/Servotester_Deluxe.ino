@@ -20,11 +20,16 @@
 
 // ======== Servotester Deluxe  =======================================
 
+/* Boardversion
+ESP32                                         2.0.5
+ */
+
 /* Installierte Bibliotheken
-ESP32Servo                  0.12.0
-ESP32Encoder                0.9.1
-Bolder Flight Systems SBUS  8.1.4
-IBusBM                      1.1.4
+ESP32Servo                                    0.12.1
+ESP32Encoder                                  0.10.1
+Bolder Flight Systems SBUS                    8.1.4
+IBusBM                                        1.1.4
+ESP8266 and ESP OLED driver SSD1306 displays  4.3.0
  */
 
 #include <WiFi.h>
@@ -37,21 +42,29 @@ IBusBM                      1.1.4
 #include <SH1106Wire.h>  //1.3 Zoll
 #include "SSD1306Wire.h"
 
-const float Version = 0.51; // Software Version
+const float Version = 0.6; // Software Version
 
 //#define OLED1306 //0.96 Zoll
 
 // EEprom
-#define EEPROM_SIZE 24
+#define EEPROM_SIZE 28
 
 #define adr_eprom_WIFI_ON 0                     // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_SERVO_STEPS 4                 // SERVO Steps für Encoder im Servotester Modus
 #define adr_eprom_SERVO_MAX 8                   // SERVO µs Max Wert im Servotester Modus
 #define adr_eprom_SERVO_MIN 12                  // SERVO µs Min Wert im Servotester Modus
 #define adr_eprom_SERVO_Mitte 16                // SERVO µs Mitte Wert im Servotester Modus
-#define adr_eprom_SERVO_Hz 20                // SERVO µs Mitte Wert im Servotester Modus
+#define adr_eprom_SERVO_Hz 20                   // SERVO µs Mitte Wert im Servotester Modus
+#define adr_eprom_POWER_SCALE 24                // SERVO µs Mitte Wert im Servotester Modus
 
-int settings[6]; //Speicher der Einstellungen
+//Speicher der Einstellungen
+int WIFI_ON;
+int SERVO_STEPS;
+int SERVO_MAX;
+int SERVO_MIN;
+int SERVO_Mitte;
+int SERVO_Hz;
+int POWER_SCALE;
 
 //Encoder + Taster
 ESP32Encoder encoder;
@@ -83,6 +96,13 @@ bfs::SbusData sbus_data;
 
 // IBUS
 IBusBM IBus;    // IBus object
+
+// Externe Spannungsversorgung
+int Power_PIN = 36;   // Hardware Pin Externe Spannung in
+bool Power_EN;        // Akku vorhanden 
+int  Power_Zel;       // Akkuzellen           
+float Power_V;        // Akkuspannung in V
+float Power_V_per;    // Akkuspannung in Prozent
 
 //Menüstruktur
 /* 
@@ -132,6 +152,7 @@ bool SetupMenu = false;         // Zustand Setupmenu
 int Einstellung =0 ;            // Aktives Einstellungsmenu
 bool Edit = false;              // Einstellungen ausgewählt
 
+//OLED
 #ifdef OLED1306
 SSD1306Wire display(0x3c, SDA, SCL);   // Oled Hardware an SDA 21 und SCL 22  
 #else
@@ -157,11 +178,19 @@ int pos1 = 0;
 int pos2 = 0;
 
 unsigned long currentTime = millis();   // Aktuelle Zeit
-unsigned long currentTimeAuto = millis();   // Aktuelle Zeit
+unsigned long currentTimeAuto = millis();   // Aktuelle Zeit für Auto Modus
+unsigned long currentTimeSpan = millis();   // Aktuelle Zeit für Externe Spannung
 unsigned long previousTime = 0;         // Previous time
-unsigned long previousTimeAuto = 0;     // Previous time
+unsigned long previousTimeAuto = 0;     // Previous time für Auto Modus
+unsigned long previousTimeSpan = 0;     // Previous time für Externe Spannung
 unsigned long TimeAuto = 50;     // Auto time
 const long timeoutTime = 2000;          // Define timeout time in milliseconds (example: 2000ms = 2s)
+
+//MAP als Float
+float map_float(float x, float in_min, float in_max, float out_min, float out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
 
 // ======== Setup  =======================================
 void setup() {
@@ -171,25 +200,29 @@ void setup() {
   //EEPROM
   EEPROM.begin(EEPROM_SIZE);
   EEprom_Load(); // Einstellung laden
-  Serial.println(settings[0]);
-  Serial.println(settings[1]);
-  Serial.println(settings[2]);
-  Serial.println(settings[3]);
-  Serial.println(settings[4]);
+  Serial.println(WIFI_ON);
+  Serial.println(SERVO_STEPS);
+  Serial.println(SERVO_MAX);
+  Serial.println(SERVO_MIN);
+  Serial.println(SERVO_Mitte);
+  Serial.println(POWER_SCALE);
 
-  if (settings[3] < 500) {    //EEporm int Werte
-      settings[0] = 0;
-      settings[1] = 10;
-      settings[2] = 2000;
-      settings[3] = 1000;
-      settings[4] = 1500;
-      settings[5] = 50;
+  if (SERVO_MIN < 500) {    //EEporm int Werte
+      WIFI_ON = 1;  //Wifi ein
+      SERVO_STEPS = 10;
+      SERVO_MAX = 2000;
+      SERVO_MIN = 1000;
+      SERVO_Mitte = 1500;
+      SERVO_Hz = 50;
+      POWER_SCALE = 500;
   }
 
   // Setup Encoder
   ESP32Encoder::useInternalWeakPullResistors=UP;
   encoder.attachHalfQuad(encoder_Pin1, encoder_Pin2);
   pinMode(button_PIN,INPUT_PULLUP);     // Button_PIN = Eingang
+
+  pinMode(Power_PIN,INPUT);            // 
   
 
   // Setup OLED
@@ -201,7 +234,7 @@ void setup() {
 
   delay(1000);
 
-  if (settings[0] == 1) {     //Wifi Ein
+  if (WIFI_ON == 1) {     //Wifi Ein
     // Print local IP address and start web server
     Serial.print("AP (Zugangspunkt) einstellen…");
     WiFi.softAP(ssid, password);
@@ -269,7 +302,9 @@ void loop(){
 
   MenuUpdate();
 
-  if (settings[0] == 1) {     //Wifi Ein
+  Extern_Span();
+
+  if (WIFI_ON == 1) {     //Wifi Ein
   WiFiClient client = server.available();   // Listen for incoming clients
 
   if (client) {                             // If a new client connects,
@@ -331,28 +366,34 @@ void loop(){
               pos1 = header.indexOf('=');
               pos2 = header.indexOf('&');
               valueString = header.substring(pos1+1, pos2);
-              settings[1] = (valueString.toInt());
+              SERVO_STEPS = (valueString.toInt());
             }
             if(header.indexOf("GET /?Set2=")>=0) {
               pos1 = header.indexOf('=');
               pos2 = header.indexOf('&');
               valueString = header.substring(pos1+1, pos2);
-              settings[2] = (valueString.toInt());
+              SERVO_MAX = (valueString.toInt());
             }
             if(header.indexOf("GET /?Set3=")>=0) {
               pos1 = header.indexOf('=');
               pos2 = header.indexOf('&');
               valueString = header.substring(pos1+1, pos2);
-              settings[3] = (valueString.toInt());
+              SERVO_MIN = (valueString.toInt());
             }
             if(header.indexOf("GET /?Set4=")>=0) {
               pos1 = header.indexOf('=');
               pos2 = header.indexOf('&');
               valueString = header.substring(pos1+1, pos2);
-              if (valueString.toInt() > settings[3]){        //Nur übernehmen wenn > MIN
-                settings[4] = (valueString.toInt());
+              if (valueString.toInt() > SERVO_MIN){        //Nur übernehmen wenn > MIN
+                SERVO_Mitte = (valueString.toInt());
               }
             }
+            if(header.indexOf("GET /?Set5=")>=0) {
+              pos1 = header.indexOf('=');
+              pos2 = header.indexOf('&');
+              valueString = header.substring(pos1+1, pos2);
+              SERVO_Hz = (valueString.toInt());
+            }            
             if(header.indexOf("GET /?Speed=")>=0) {
               pos1 = header.indexOf('=');
               pos2 = header.indexOf('&');
@@ -361,23 +402,23 @@ void loop(){
             }
             if (header.indexOf("GET /mitte1/on") >= 0) 
             {
-              servo_pos[0] = settings[4]; //Mitte
+              servo_pos[0] = SERVO_Mitte; //Mitte
             }  
             if (header.indexOf("GET /mitte2/on") >= 0) 
             {
-              servo_pos[1] = settings[4]; //Mitte
+              servo_pos[1] = SERVO_Mitte; //Mitte
             }
             if (header.indexOf("GET /mitte3/on") >= 0) 
             {
-              servo_pos[2] = settings[4]; //Mitte
+              servo_pos[2] = SERVO_Mitte; //Mitte
             }
             if (header.indexOf("GET /mitte4/on") >= 0) 
             {
-              servo_pos[3] = settings[4]; //Mitte
+              servo_pos[3] = SERVO_Mitte; //Mitte
             }
             if (header.indexOf("GET /mitte5/on") >= 0) 
             {
-              servo_pos[4] = settings[4]; //Mitte
+              servo_pos[4] = SERVO_Mitte; //Mitte
             }  
             if (header.indexOf("GET /back/on") >= 0) 
             {
@@ -450,7 +491,7 @@ void loop(){
                   client.println("<p><h3>Servo 1 Mikrosekunden : <span id=\"textServo1SliderValue\">" + valueString + "</span>");
                   client.println("<a href=\"/mitte1/on\"><button class=\"button button1\">Mitte</button></a></p>");
 
-                  client.println("<input type=\"range\" min=\""+String(settings[3], DEC)+"\" max=\""+String(settings[2], DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo1Slider\" onchange=\"Servo1Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+                  client.println("<input type=\"range\" min=\""+String(SERVO_MIN, DEC)+"\" max=\""+String(SERVO_MAX, DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo1Slider\" onchange=\"Servo1Speed(this.value)\" value=\"" + valueString + "\" /></p>");
 
                   client.println("<script> function Servo1Speed(pos) { ");
                   client.println("var sliderValue = document.getElementById(\"Servo1Slider\").value;");
@@ -464,7 +505,7 @@ void loop(){
                   client.println("<p><h3>Servo 2 Mikrosekunden : <span id=\"textServo2SliderValue\">" + valueString + "</span>");
                   client.println("<a href=\"/mitte2/on\"><button class=\"button button1\">Mitte</button></a></p>");
 
-                  client.println("<input type=\"range\" min=\""+String(settings[3], DEC)+"\" max=\""+String(settings[2], DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo2Slider\" onchange=\"Servo2Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+                  client.println("<input type=\"range\" min=\""+String(SERVO_MIN, DEC)+"\" max=\""+String(SERVO_MAX, DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo2Slider\" onchange=\"Servo2Speed(this.value)\" value=\"" + valueString + "\" /></p>");
 
                   client.println("<script> function Servo2Speed(pos) { ");
                   client.println("var sliderValue = document.getElementById(\"Servo2Slider\").value;");
@@ -478,7 +519,7 @@ void loop(){
                   client.println("<p><h3>Servo 3 Mikrosekunden : <span id=\"textServo3SliderValue\">" + valueString + "</span>");
                   client.println("<a href=\"/mitte3/on\"><button class=\"button button1\">Mitte</button></a></p>");
 
-                  client.println("<input type=\"range\" min=\""+String(settings[3], DEC)+"\" max=\""+String(settings[2], DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo3Slider\" onchange=\"Servo3Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+                  client.println("<input type=\"range\" min=\""+String(SERVO_MIN, DEC)+"\" max=\""+String(SERVO_MAX, DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo3Slider\" onchange=\"Servo3Speed(this.value)\" value=\"" + valueString + "\" /></p>");
 
                   client.println("<script> function Servo3Speed(pos) { ");
                   client.println("var sliderValue = document.getElementById(\"Servo3Slider\").value;");
@@ -492,7 +533,7 @@ void loop(){
                   client.println("<p><h3>Servo 4 Mikrosekunden : <span id=\"textServo4SliderValue\">" + valueString + "</span>");
                   client.println("<a href=\"/mitte4/on\"><button class=\"button button1\">Mitte</button></a></p>");
 
-                  client.println("<input type=\"range\" min=\""+String(settings[3], DEC)+"\" max=\""+String(settings[2], DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo4Slider\" onchange=\"Servo4Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+                  client.println("<input type=\"range\" min=\""+String(SERVO_MIN, DEC)+"\" max=\""+String(SERVO_MAX, DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo4Slider\" onchange=\"Servo4Speed(this.value)\" value=\"" + valueString + "\" /></p>");
 
                   client.println("<script> function Servo4Speed(pos) { ");
                   client.println("var sliderValue = document.getElementById(\"Servo4Slider\").value;");
@@ -506,7 +547,7 @@ void loop(){
                   client.println("<p><h3>Servo 5 Mikrosekunden : <span id=\"textServo5SliderValue\">" + valueString + "</span>");
                   client.println("<a href=\"/mitte5/on\"><button class=\"button button1\">Mitte</button></a></p>");
 
-                  client.println("<input type=\"range\" min=\""+String(settings[3], DEC)+"\" max=\""+String(settings[2], DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo5Slider\" onchange=\"Servo5Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+                  client.println("<input type=\"range\" min=\""+String(SERVO_MIN, DEC)+"\" max=\""+String(SERVO_MAX, DEC)+"\" step=\"10\" class=\"slider\" id=\"Servo5Slider\" onchange=\"Servo5Speed(this.value)\" value=\"" + valueString + "\" /></p>");
 
                   client.println("<script> function Servo5Speed(pos) { ");
                   client.println("var sliderValue = document.getElementById(\"Servo5Slider\").value;");
@@ -543,7 +584,7 @@ void loop(){
              case Einstellung_Menu:
                   client.println("<h2>Einstellung</h2>");
 
-                  valueString = String(settings[1], DEC);
+                  valueString = String(SERVO_STEPS, DEC);
                 
                   client.println("<p><h3>Servo Steps : <span id=\"textSetting1Value\">" + valueString + "</span>");
                   client.println("<input type=\"text\" id=\"Setting1Input\" class=\"textbox\" oninput=\"Setting1change(this.value)\" value=\"" + valueString + "\" /></p>");
@@ -555,7 +596,7 @@ void loop(){
                   client.println("xhr.open('GET', \"/?Set1=\" + pos + \"&\", true);");
                   client.println("xhr.send(); } </script>");
 
-                  valueString = String(settings[2], DEC);
+                  valueString = String(SERVO_MAX, DEC);
                 
                   client.println("<p><h3>Servo MAX : <span id=\"textSetting2Value\">" + valueString + "</span>");
                   client.println("<input type=\"text\" id=\"Setting2Input\" class=\"textbox\" oninput=\"Setting2change(this.value)\" value=\"" + valueString + "\" /></p>");
@@ -567,7 +608,7 @@ void loop(){
                   client.println("xhr.open('GET', \"/?Set2=\" + pos + \"&\", true);");
                   client.println("xhr.send(); } </script>");
 
-                  valueString = String(settings[3], DEC);
+                  valueString = String(SERVO_MIN, DEC);
                 
                   client.println("<p><h3>Servo MIN : <span id=\"textSetting3Value\">" + valueString + "</span>");
                   client.println("<input type=\"text\" id=\"Setting3Input\" class=\"textbox\" oninput=\"Setting3change(this.value)\" value=\"" + valueString + "\" /></p>");
@@ -579,7 +620,7 @@ void loop(){
                   client.println("xhr.open('GET', \"/?Set3=\" + pos + \"&\", true);");
                   client.println("xhr.send(); } </script>");
 
-                  valueString = String(settings[4], DEC);
+                  valueString = String(SERVO_Mitte, DEC);
                 
                   client.println("<p><h3>Servo Mitte : <span id=\"textSetting4Value\">" + valueString + "</span>");
                   client.println("<input type=\"text\" id=\"Setting4Input\" class=\"textbox\" oninput=\"Setting4change(this.value)\" value=\"" + valueString + "\" /></p>");
@@ -590,6 +631,18 @@ void loop(){
                   client.println("var xhr = new XMLHttpRequest();");
                   client.println("xhr.open('GET', \"/?Set4=\" + pos + \"&\", true);");
                   client.println("xhr.send(); } </script>");
+
+                  valueString = String(SERVO_Hz, DEC);
+                
+                  client.println("<p><h3>Servo Hz : <span id=\"textSetting5Value\">" + valueString + "</span>");
+                  client.println("<input type=\"text\" id=\"Setting5Input\" class=\"textbox\" oninput=\"Setting5change(this.value)\" value=\"" + valueString + "\" /></p>");
+                  
+                  client.println("<script> function Setting5change(pos) { ");
+                  client.println("var sliderValue = document.getElementById(\"Setting5Input\").value;");
+                  client.println("document.getElementById(\"textSetting4Value\").innerHTML = sliderValue;");
+                  client.println("var xhr = new XMLHttpRequest();");
+                  client.println("xhr.open('GET', \"/?Set5=\" + pos + \"&\", true);");
+                  client.println("xhr.send(); } </script>");                  
 
 
                   client.println("<p><a href=\"/save/on\"><button class=\"button button1\">Speichern</button></a></p>");
@@ -715,6 +768,19 @@ switch (Menu) {
     display.drawString(64, 0, "  Menu >" );
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25,"Servotester" );
+    if (Power_EN)
+    {
+      display.setFont(ArialMT_Plain_10);  
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(30, 50, String(Power_V));
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.drawString(30, 50, "V");
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(98, 50, String(Power_V_per));
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.drawString(98, 50, "%");
+    }
+    
     display.display();
           
     if (encoderState == 1){
@@ -859,23 +925,23 @@ switch (Menu) {
     display.setTextAlignment(TEXT_ALIGN_LEFT);
     display.setFont(ArialMT_Plain_10);
     display.drawString(0, 0, "HZ");
-    display.drawString(0, 10, String(settings[5]));
+    display.drawString(0, 10, String(SERVO_Hz));
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
     display.drawString(64, 0, "Servo" + String(servocount+1));
     //display.drawString(64, 25, String(servo_pos[servocount]) + "°");
     //display.drawProgressBar(8, 50, 112, 10, ((servo_pos[servocount]*100)/180));
     display.drawString(64, 25, String(servo_pos[servocount]) + "µs");
-    display.drawProgressBar(8, 50, 112, 10, (((servo_pos[servocount]-settings[3])*100)/(settings[2]-settings[3])));
+    display.drawProgressBar(8, 50, 112, 10, (((servo_pos[servocount]-SERVO_MIN)*100)/(SERVO_MAX-SERVO_MIN)));
     display.display();
     if (!SetupMenu)
     {
-      servo[0].attach(servopin[0],settings[3],settings[2]);  // ServoPIN, MIN, MAX
-      servo[1].attach(servopin[1],settings[3],settings[2]);  // ServoPIN, MIN, MAX
-      servo[2].attach(servopin[2],settings[3],settings[2]);  // ServoPIN, MIN, MAX
-      servo[3].attach(servopin[3],settings[3],settings[2]);  // ServoPIN, MIN, MAX
-      servo[4].attach(servopin[4],settings[3],settings[2]);  // ServoPIN, MIN, MAX
-      servo[0].setPeriodHertz(settings[5]);
+      servo[0].attach(servopin[0],SERVO_MIN,SERVO_MAX);  // ServoPIN, MIN, MAX
+      servo[1].attach(servopin[1],SERVO_MIN,SERVO_MAX);  // ServoPIN, MIN, MAX
+      servo[2].attach(servopin[2],SERVO_MIN,SERVO_MAX);  // ServoPIN, MIN, MAX
+      servo[3].attach(servopin[3],SERVO_MIN,SERVO_MAX);  // ServoPIN, MIN, MAX
+      servo[4].attach(servopin[4],SERVO_MIN,SERVO_MAX);  // ServoPIN, MIN, MAX
+      servo[0].setPeriodHertz(SERVO_Hz);
       SetupMenu = true;
     }
     
@@ -886,19 +952,19 @@ switch (Menu) {
     servo[4].writeMicroseconds(servo_pos[4]);
      
     if (encoderState == 1){
-      servo_pos[servocount] = servo_pos[servocount] - settings[1] ;
+      servo_pos[servocount] = servo_pos[servocount] - SERVO_STEPS ;
     }
     if (encoderState == 2){
-      servo_pos[servocount] = servo_pos[servocount] + settings[1] ;
+      servo_pos[servocount] = servo_pos[servocount] + SERVO_STEPS ;
     }
 
-    if (servo_pos[servocount] > settings[2])   //Servo MAX
+    if (servo_pos[servocount] > SERVO_MAX)   //Servo MAX
     {
-       servo_pos[servocount] = settings[2];
+       servo_pos[servocount] = SERVO_MAX;
     }
-    else if (servo_pos[servocount] < settings[3])  //Servo MIN
+    else if (servo_pos[servocount] < SERVO_MIN)  //Servo MIN
     {
-       servo_pos[servocount] = settings[3];
+       servo_pos[servocount] = SERVO_MIN;
     } 
     
     if(buttonState == 1){
@@ -913,7 +979,7 @@ switch (Menu) {
     }
 
      if(buttonState == 2){
-      servo_pos[servocount] = settings[4];    //Servo Mitte 
+      servo_pos[servocount] = SERVO_Mitte;    //Servo Mitte 
     }
 
      if(buttonState == 3){
@@ -938,16 +1004,16 @@ switch (Menu) {
     }
     else
     {
-      display.drawProgressBar(8, 50, 112, 10, (((servo_pos[servocount]-settings[3])*100)/(settings[2]-settings[3])));
+      display.drawProgressBar(8, 50, 112, 10, (((servo_pos[servocount]-SERVO_MIN)*100)/(SERVO_MAX-SERVO_MIN)));
     }
     display.display();
     if (!SetupMenu)
     {
-      servo[0].attach(servopin[0],settings[3],settings[2]);  // ServoPIN, MIN, MAX
-      servo[1].attach(servopin[1],settings[3],settings[2]);  // ServoPIN, MIN, MAX
-      servo[2].attach(servopin[2],settings[3],settings[2]);  // ServoPIN, MIN, MAX
-      servo[3].attach(servopin[3],settings[3],settings[2]);  // ServoPIN, MIN, MAX
-      servo[4].attach(servopin[4],settings[3],settings[2]);  // ServoPIN, MIN, MAX
+      servo[0].attach(servopin[0],SERVO_MIN,SERVO_MAX);  // ServoPIN, MIN, MAX
+      servo[1].attach(servopin[1],SERVO_MIN,SERVO_MAX);  // ServoPIN, MIN, MAX
+      servo[2].attach(servopin[2],SERVO_MIN,SERVO_MAX);  // ServoPIN, MIN, MAX
+      servo[3].attach(servopin[3],SERVO_MIN,SERVO_MAX);  // ServoPIN, MIN, MAX
+      servo[4].attach(servopin[4],SERVO_MIN,SERVO_MAX);  // ServoPIN, MIN, MAX
       TimeAuto = 50;    //Zeit für SERVO Steps +-
       Auto_Pause = false; //Pause aus
       SetupMenu = true;
@@ -958,29 +1024,29 @@ switch (Menu) {
       if ((currentTimeAuto - previousTimeAuto) > TimeAuto){
         previousTimeAuto = currentTimeAuto;
         if (Autopos[servocount] > 1500){
-          servo_pos[servocount] = servo_pos[servocount] + settings[1];
+          servo_pos[servocount] = servo_pos[servocount] + SERVO_STEPS;
         }
         else
         {
-          servo_pos[servocount] = servo_pos[servocount] - settings[1];
+          servo_pos[servocount] = servo_pos[servocount] - SERVO_STEPS;
         }
       }
     }
 
-    if (servo_pos[servocount] < settings[3]){
-      Autopos[servocount] = settings[2];
-      servo_pos[servocount] = settings[3];
+    if (servo_pos[servocount] < SERVO_MIN){
+      Autopos[servocount] = SERVO_MAX;
+      servo_pos[servocount] = SERVO_MIN;
     }
-    if (servo_pos[servocount] > settings[2]){
-      Autopos[servocount] = settings[3];
-      servo_pos[servocount] = settings[2];
+    if (servo_pos[servocount] > SERVO_MAX){
+      Autopos[servocount] = SERVO_MIN;
+      servo_pos[servocount] = SERVO_MAX;
     }
 
     servo[servocount].writeMicroseconds(servo_pos[servocount]);
     
     if (encoderState == 1){
       if (Auto_Pause){
-        servo_pos[servocount] = servo_pos[servocount] - settings[1] ;
+        servo_pos[servocount] = servo_pos[servocount] - SERVO_STEPS ;
       }
       else
       {
@@ -989,7 +1055,7 @@ switch (Menu) {
     }
     if (encoderState == 2){
       if (Auto_Pause){
-        servo_pos[servocount] = servo_pos[servocount] + settings[1] ;
+        servo_pos[servocount] = servo_pos[servocount] + SERVO_STEPS ;
       }
       else
       {
@@ -1260,7 +1326,7 @@ switch (Menu) {
     switch (Einstellung) {
       case 0:
         display.drawString(64, 25,"Wifi" );
-        if (settings[Einstellung] == 1) {
+        if (WIFI_ON == 1) {
           display.drawString(64, 45,"Ein" );
         }
         else {
@@ -1269,24 +1335,33 @@ switch (Menu) {
         break;
       case 1:
         display.drawString(64, 25,"Servo Steps µs" );
-        display.drawString(64, 45,String(settings[Einstellung]));
+        display.drawString(64, 45,String(SERVO_STEPS));
         break;
       case 2:
         display.drawString(64, 25,"Servo MAX µs" );
-        display.drawString(64, 45,String(settings[Einstellung]));
+        display.drawString(64, 45,String(SERVO_MAX));
         break;
       case 3:
         display.drawString(64, 25,"Servo MIN µs" );
-        display.drawString(64, 45,String(settings[Einstellung]));
+        display.drawString(64, 45,String(SERVO_MIN));
         break;
       case 4:
         display.drawString(64, 25,"Servo Mitte µs" );
-        display.drawString(64, 45,String(settings[Einstellung]));
+        display.drawString(64, 45,String(SERVO_Mitte));
         break;   
       case 5:
         display.drawString(64, 25,"Servo Hz" );
-        display.drawString(64, 45,String(settings[Einstellung]));
-        break;   
+        display.drawString(64, 45,String(SERVO_Hz));
+        break;  
+      case 6:
+        display.drawString(64, 25,"POWER Scale" );
+        display.drawString(64, 45,String(POWER_SCALE));
+        display.setFont(ArialMT_Plain_10);  
+        display.setTextAlignment(TEXT_ALIGN_RIGHT);
+        display.drawString(110, 50, String(Power_V));
+        display.setTextAlignment(TEXT_ALIGN_LEFT);
+        display.drawString(110, 50, "V");
+        break;     
     }
     if (Edit) { 
       display.drawString(10, 45,"->" );
@@ -1304,7 +1379,29 @@ switch (Menu) {
       }
       else
       {
-      settings[Einstellung]--;
+      switch (Einstellung) {
+      case 0:  
+        WIFI_ON --;
+        break;
+      case 1:
+        SERVO_STEPS --;
+        break;
+      case 2:
+        SERVO_MAX --;
+        break;
+      case 3:
+        SERVO_MIN --;
+        break;
+      case 4:
+        SERVO_Mitte --;
+        break;
+      case 5:
+        SERVO_Hz --;
+        break;
+      case 6:
+        POWER_SCALE --;
+        break;        
+      }  
       } 
     }
     if (encoderState == 2){
@@ -1313,103 +1410,125 @@ switch (Menu) {
       }
       else
       {
-      settings[Einstellung]++;
+      switch (Einstellung) {
+      case 0:  
+        WIFI_ON ++;
+        break;
+      case 1:
+        SERVO_STEPS ++;
+        break;
+      case 2:
+        SERVO_MAX ++;
+        break;
+      case 3:
+        SERVO_MIN ++;
+        break;
+      case 4:
+        SERVO_Mitte ++;
+        break;
+      case 5:
+        SERVO_Hz ++;
+        break;
+      case 6:
+        POWER_SCALE ++;
+        break;         
+      }              
       } 
     }
 
-    if (Einstellung > 5) 
+    if (Einstellung > 6) 
     {
        Einstellung = 0;
     }
     else if (Einstellung < 0) 
     {
-       Einstellung = 5;
+       Einstellung = 6;
     } 
     
-    if (settings[0] < 0) {   //Wifi off nicht unter 0
-      settings[0] = 0;
+    if (WIFI_ON < 0) {   //Wifi off nicht unter 0
+      WIFI_ON = 0;
     }
 
-   if (settings[0] > 1) {   //Wifi on nicht über 1
-      settings[0] = 1;
+   if (WIFI_ON > 1) {   //Wifi on nicht über 1
+      WIFI_ON = 1;
     }
 
-    if (settings[1] < 0) {   //Steps nicht unter 0
-      settings[1] = 0;
+    if (SERVO_STEPS < 0) {   //Steps nicht unter 0
+      SERVO_STEPS = 0;
     }
 
-    if (settings[2] < settings[4]) {   //Max nicht unter Mitte
-      settings[2] = settings[4] + 1;
+    if (SERVO_MAX < SERVO_Mitte) {   //Max nicht unter Mitte
+      SERVO_MAX = SERVO_Mitte + 1;
     }
 
-    if (settings[2] > 2500) {   //Max nicht über 2500
-      settings[2] = 2500;
+    if (SERVO_MAX > 2500) {   //Max nicht über 2500
+      SERVO_MAX = 2500;
     }
 
-    if (settings[3] > settings[4]) {   //Min nicht über Mitte
-      settings[3] = settings[4] - 1;
+    if (SERVO_MIN > SERVO_Mitte) {   //Min nicht über Mitte
+      SERVO_MIN = SERVO_Mitte - 1;
     }
 
-    if (settings[3] < 500) {   //Min nicht unter 500
-      settings[3] = 500;
+    if (SERVO_MIN < 500) {   //Min nicht unter 500
+      SERVO_MIN = 500;
     }
 
-    if (settings[4] > settings[2]) {   //Mitte nicht über Max
-      settings[4] = settings[2] - 1;
+    if (SERVO_Mitte > SERVO_MAX) {   //Mitte nicht über Max
+      SERVO_Mitte = SERVO_MAX - 1;
     }
 
-    if (settings[4] < settings[3]) {   //Mitte nicht unter Min
-      settings[4] = settings[3] + 1;
+    if (SERVO_Mitte < SERVO_MIN) {   //Mitte nicht unter Min
+      SERVO_Mitte = SERVO_MIN + 1;
     }
 
-    if (settings[5] == 51) {
-      settings[5] = 200;
+    if (SERVO_Hz == 51) {
+      SERVO_Hz = 200;
     }
     
-    if (settings[5] == 201) {
-      settings[5] = 333;
+    if (SERVO_Hz == 201) {
+      SERVO_Hz = 333;
     }
     
-    if (settings[5] == 334) {
-      settings[5] = 560;
-      settings[2] = 1000;
-      settings[3] = 500;
-      settings[4] = 760;
+    if (SERVO_Hz == 334) {
+      SERVO_Hz = 560;
+      SERVO_MAX = 1000;
+      SERVO_MIN = 500;
+      SERVO_Mitte = 760;
     }
       
-    if (settings[5] == 561) {
-      settings[5] = 50;
-      settings[2] = 2000;
-      settings[3] = 1000;
-      settings[4] = 1500;
+    if (SERVO_Hz == 561) {
+      SERVO_Hz = 50;
+      SERVO_MAX = 2000;
+      SERVO_MIN = 1000;
+      SERVO_Mitte = 1500;
     }
     
-    if (settings[5] == 49) {
-      settings[5] = 560;
-      settings[2] = 1000;
-      settings[3] = 500;
-      settings[4] = 760;
+    if (SERVO_Hz == 49) {
+      SERVO_Hz = 560;
+      SERVO_MAX = 1000;
+      SERVO_MIN = 500;
+      SERVO_Mitte = 760;
     }
     
-    if (settings[5] == 559) {
-      settings[5] = 333;
-      settings[2] = 2000;
-      settings[3] = 1000;
-      settings[4] = 1500;
+    if (SERVO_Hz == 559) {
+      SERVO_Hz = 333;
+      SERVO_MAX = 2000;
+      SERVO_MIN = 1000;
+      SERVO_Mitte = 1500;
     }      
     
-    if (settings[5] == 332) {
-      settings[5] = 200;
+    if (SERVO_Hz == 332) {
+      SERVO_Hz = 200;
     }      
     
-    if (settings[5] == 199) {
-      settings[5] = 50;
+    if (SERVO_Hz == 199) {
+      SERVO_Hz = 50;
     }      
 
-    if (settings[5] == 560) {
-      settings[2] = 1000;
-      settings[3] = 500;
-      settings[4] = 760;
+    if (SERVO_Hz == 560) {
+      SERVO_MAX = 1000;
+      SERVO_MIN = 500;
+      SERVO_Mitte = 760;
     }  
     
         
@@ -1441,24 +1560,90 @@ switch (Menu) {
 
 }
 
+// ======== Externe Spanunngsversorgung  ======================================= 
+void Extern_Span() {
+
+  currentTimeSpan = millis();
+  if ((currentTimeSpan - previousTimeSpan) > 2000)
+  {
+    previousTimeSpan = currentTimeSpan;
+
+
+    // ADC & DAC calibration https://hackaday.io/project/27511-microfluidics-control-system/log/69406-adc-dac-calibration  
+    int val = analogRead(Power_PIN);
+    double x = val;
+    double y = -3e-12*pow(x, 3) - 7e-10*pow(x, 2) + 0.0003*x + 0.0169;
+    int MeasuredValue = std::min(3300, std::max(0, int(round(y*UINT8_MAX))));
+
+    Serial.print("MeasuredValue: ");
+    Serial.println(MeasuredValue);
+  
+    // Wert in Volt umrechnen
+    Power_V = MeasuredValue;
+    Power_V = Power_V/100;
+
+    float scale_value = POWER_SCALE;
+    scale_value = scale_value/100;
+  
+    Power_V = Power_V  * scale_value;
+
+    Serial.print("Spannung: ");
+    Serial.println(Power_V,8);
+
+    Power_EN = 1;
+  
+    if (Power_V > 21) //6s Lipo
+    {
+      Power_Zel = 6;
+    }
+    else if (Power_V > 16.8) //5s Lipo
+    {
+      Power_Zel = 5;
+    }
+    else if (Power_V > 12.6) //4s Lipo
+    {
+      Power_Zel = 4;
+    }
+    else if (Power_V > 8.4) //3s Lipo
+    {
+      Power_Zel = 3;
+    }
+    else if (Power_V > 4.2) //2s Lipo
+    {
+      Power_Zel = 2;
+    }   
+    else  //1s Lipo kein Akku angeschlossen
+    {
+      Power_Zel = 1;
+      Power_EN = 0;
+    }     
+  
+  Power_V_per = (Power_V/Power_Zel);  // Prozentanzeige
+  Power_V_per = map_float(Power_V_per, 3.5, 4.2, 0, 100);
+}
+}  
+
+
 // ======== EEprom  ======================================= 
 void EEprom_Load() {
-  settings[0] = EEPROM.readInt(adr_eprom_WIFI_ON);
-  settings[1] = EEPROM.readInt(adr_eprom_SERVO_STEPS);
-  settings[2] = EEPROM.readInt(adr_eprom_SERVO_MAX);
-  settings[3] = EEPROM.readInt(adr_eprom_SERVO_MIN);
-  settings[4] = EEPROM.readInt(adr_eprom_SERVO_Mitte);
-  settings[5] = EEPROM.readInt(adr_eprom_SERVO_Hz);
+  WIFI_ON = EEPROM.readInt(adr_eprom_WIFI_ON);
+  SERVO_STEPS = EEPROM.readInt(adr_eprom_SERVO_STEPS);
+  SERVO_MAX = EEPROM.readInt(adr_eprom_SERVO_MAX);
+  SERVO_MIN = EEPROM.readInt(adr_eprom_SERVO_MIN);
+  SERVO_Mitte = EEPROM.readInt(adr_eprom_SERVO_Mitte);
+  SERVO_Hz = EEPROM.readInt(adr_eprom_SERVO_Hz);
+  POWER_SCALE = EEPROM.readInt(adr_eprom_POWER_SCALE);
   Serial.println("EEPROM gelesen.");
 }
 
 void EEprom_Save() {
-  EEPROM.writeInt(adr_eprom_WIFI_ON, settings[0]);
-  EEPROM.writeInt(adr_eprom_SERVO_STEPS, settings[1]);
-  EEPROM.writeInt(adr_eprom_SERVO_MAX, settings[2]);
-  EEPROM.writeInt(adr_eprom_SERVO_MIN, settings[3]);
-  EEPROM.writeInt(adr_eprom_SERVO_Mitte, settings[4]);
-  EEPROM.writeInt(adr_eprom_SERVO_Hz, settings[5]);
+  EEPROM.writeInt(adr_eprom_WIFI_ON, WIFI_ON);
+  EEPROM.writeInt(adr_eprom_SERVO_STEPS, SERVO_STEPS);
+  EEPROM.writeInt(adr_eprom_SERVO_MAX, SERVO_MAX);
+  EEPROM.writeInt(adr_eprom_SERVO_MIN, SERVO_MIN);
+  EEPROM.writeInt(adr_eprom_SERVO_Mitte, SERVO_Mitte);
+  EEPROM.writeInt(adr_eprom_SERVO_Hz, SERVO_Hz);
+  EEPROM.writeInt(adr_eprom_POWER_SCALE, POWER_SCALE);
   EEPROM.commit();
   Serial.println("EEPROM gespeichert.");
 }
