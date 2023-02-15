@@ -23,7 +23,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.7.0"; // Software revision.
+char codeVersion[] = "0.7.1"; // Software revision.
 
 //
 // =======================================================================================================
@@ -282,9 +282,12 @@ void setup()
   Serial.println(SERVO_MIN);
   Serial.println(SERVO_Mitte);
   Serial.println(POWER_SCALE);
+  Serial.println(SBUS_INVERTED);
+  Serial.println(ENCODER_INVERTED);
+  Serial.println(LANGUAGE);
 
   if (SERVO_MIN < 500)
-  {              // EEporm int Werte
+  {              // EEporm init Werte
     WIFI_ON = 1; // Wifi ein
     SERVO_STEPS = 10;
     SERVO_MAX = 2000;
@@ -292,6 +295,10 @@ void setup()
     SERVO_Mitte = 1500;
     SERVO_Hz = 50;
     POWER_SCALE = 948;
+    SBUS_INVERTED = 1; // 1 = Standard signal!
+    ENCODER_INVERTED = 0;
+    LANGUAGE = 0;
+    EEprom_Save();
   }
 
   // Setup Encoder

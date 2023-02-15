@@ -7,7 +7,7 @@
  */
 
 // Display settings ----------------------------------------------------------------------------------------------
-//#define OLED1306 //A 0.96" Display is selected, if defined. Otherwise a 1.3" display
+//#define OLED1306 //A 1306 0.96" Display is selected, if defined. Otherwise a 1106 1.3" display
 //#define ALTERNATIVE_LOGO // Alternative boot logo
 
 // WiFi settings -------------------------------------------------------------------------------------------------
