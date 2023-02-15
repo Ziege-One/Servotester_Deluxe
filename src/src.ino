@@ -6,11 +6,11 @@
    Requirements:
    - git is installed (allows to download libraries and boards automatically): https://git-scm.com/downloads
    - PlatformIO plugin is installed in VS Code
- 
+
  ESP32 + Encoder + OLED
 
  /////Pin Belegung////
- GPIO 13: Servo1
+ GPIO 13: Servo1 & BUS Input
  GPIO 14: Servo2
  GPIO 27: Servo3
  GPIO 33: Servo4
@@ -23,7 +23,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.6.0";  // Software revision.
+char codeVersion[] = "0.7.0"; // Software revision.
 
 //
 // =======================================================================================================
@@ -33,7 +33,7 @@ char codeVersion[] = "0.6.0";  // Software revision.
 //
 
 // All the required user settings are done in the following .h files:
-#include "0_generalSettings.h"  // <<------- general settings
+#include "0_generalSettings.h" // <<------- general settings
 
 //
 // =======================================================================================================
@@ -52,39 +52,47 @@ ESP32                                         2.0.5
 /* Required Libraries / Benötigte Bibliotheken
 ESP32Servo                                    0.12.1
 ESP32Encoder                                  0.10.1
-Bolder Flight Systems SBUS                    8.1.4
+SBUS                                          internal, no library required anymore
 IBusBM                                        1.1.4
 ESP8266 and ESP OLED driver SSD1306 displays  4.3.0
  */
 
-#include <ESP32Servo.h>    // https://github.com/madhephaestus/ESP32Servo/archive/refs/tags/0.12.1.tar.gz
-#include <ESP32Encoder.h>  // https://github.com/madhephaestus/ESP32Encoder/archive/refs/tags/0.10.1.tar.gz
-#include "sbus.h"          // https://github.com/bolderflight/sbus/archive/refs/tags/v8.1.4.tar.gz
-#include <IBusBM.h>        // https://github.com/bmellink/IBusBM/archive/refs/tags/v1.1.5.tar.gz
-#include <SH1106Wire.h>    //1.3"
-#include "SSD1306Wire.h"   //0.96" https://github.com/ThingPulse/esp8266-oled-ssd1306/archive/refs/tags/4.3.0.tar.gz
+#include <ESP32Servo.h>   // https://github.com/madhephaestus/ESP32Servo/archive/refs/tags/0.12.1.tar.gz
+#include <ESP32Encoder.h> // https://github.com/madhephaestus/ESP32Encoder/archive/refs/tags/0.10.1.tar.gz
+#include <IBusBM.h>       // https://github.com/bmellink/IBusBM/archive/refs/tags/v1.1.5.tar.gz
+#include <SH1106Wire.h>   //1.3"
+#include "SSD1306Wire.h"  //0.96" https://github.com/ThingPulse/esp8266-oled-ssd1306/archive/refs/tags/4.3.0.tar.gz
 
 // No need to install these, they come with the ESP32 board definition
 #include <WiFi.h>
 #include <EEPROM.h>
-#include <Esp.h>      // for displaying memory information
-#include "rom/rtc.h"  // for displaying reset reason
+#include <Esp.h>     // for displaying memory information
+#include "rom/rtc.h" // for displaying reset reason
 
 // Project specific includes
-#include "src/images.h"  // Startlogo
+#if not defined ALTERNATIVE_LOGO
+#include "src/images.h" // Startlogo Der RC Modellbauer
+#else
+#include "src/images2.h" // Alternative Logo
+#endif
+#include "src/sbus.h"      // For SBUS interface
+#include "src/languages.h" // Menu language ressources
 
 // EEprom
-#define EEPROM_SIZE 28
+#define EEPROM_SIZE 40
 
-#define adr_eprom_WIFI_ON 0       // WIFI 1 = Ein 0 = Aus
-#define adr_eprom_SERVO_STEPS 4   // SERVO Steps für Encoder im Servotester Modus
-#define adr_eprom_SERVO_MAX 8     // SERVO µs Max Wert im Servotester Modus
-#define adr_eprom_SERVO_MIN 12    // SERVO µs Min Wert im Servotester Modus
-#define adr_eprom_SERVO_Mitte 16  // SERVO µs Mitte Wert im Servotester Modus
-#define adr_eprom_SERVO_Hz 20     // SERVO µs Mitte Wert im Servotester Modus
-#define adr_eprom_POWER_SCALE 24  // SERVO µs Mitte Wert im Servotester Modus
+#define adr_eprom_WIFI_ON 0           // WIFI 1 = Ein 0 = Aus
+#define adr_eprom_SERVO_STEPS 4       // SERVO Steps für Encoder im Servotester Modus
+#define adr_eprom_SERVO_MAX 8         // SERVO µs Max Wert im Servotester Modus
+#define adr_eprom_SERVO_MIN 12        // SERVO µs Min Wert im Servotester Modus
+#define adr_eprom_SERVO_Mitte 16      // SERVO µs Mitte Wert im Servotester Modus
+#define adr_eprom_SERVO_Hz 20         // SERVO µs Mitte Wert im Servotester Modus
+#define adr_eprom_POWER_SCALE 24      // SERVO µs Mitte Wert im Servotester Modus
+#define adr_eprom_SBUS_INVERTED 28    // SBUS inverted
+#define adr_eprom_ENCODER_INVERTED 32 // Encoder inverted
+#define adr_eprom_LANGUAGE 36         // SBUS inverted
 
-//Speicher der Einstellungen
+// Speicher der Einstellungen
 int WIFI_ON;
 int SERVO_STEPS;
 int SERVO_MAX;
@@ -92,55 +100,66 @@ int SERVO_MIN;
 int SERVO_Mitte;
 int SERVO_Hz;
 int POWER_SCALE;
+int SBUS_INVERTED = 1; // 1 = standard (non inverted) SBUS signal
+int ENCODER_INVERTED;
+int LANGUAGE;
 
-//Encoder + Taster
+// Encoder + Taster
 ESP32Encoder encoder;
 
-int button_PIN = 15;           // Hardware Pin Button
-int encoder_Pin1 = 16;         // Hardware Pin1 Encoder
-int encoder_Pin2 = 17;         // Hardware Pin2 Encoder
-long prev = 0;                 // Zeitspeicher für Taster
-long prev2 = 0;                // Zeitspeicher für Taster
-long previousDebouncTime = 0;  // Speicher Entprellzeit für Taster
-int buttonState = 0;           // 0 = Taster nicht betätigt; 1 = Taster langer Druck; 2 = Taster kurzer Druck; 3 = Taster Doppelklick
-int encoderState = 0;          // 1 = Drehung nach Links (-); 2 = Drehung nach Rechts (+)
-int Duration_long = 600;       // Zeit für langen Druck
-int Duration_double = 200;     // Zeit für Doppelklick
-int bouncing = 50;             // Zeit für Taster Entprellung
-int encoder_last;              // Speicher letzer Wert Encoder
-int encoder_read;              // Speicher aktueller Wert Encoder
+int button_PIN = 15;          // Hardware Pin Button
+int encoder_Pin1 = 16;        // Hardware Pin1 Encoder
+int encoder_Pin2 = 17;        // Hardware Pin2 Encoder
+long prev = 0;                // Zeitspeicher für Taster
+long prev2 = 0;               // Zeitspeicher für Taster
+long previousDebouncTime = 0; // Speicher Entprellzeit für Taster
+int buttonState = 0;          // 0 = Taster nicht betätigt; 1 = Taster langer Druck; 2 = Taster kurzer Druck; 3 = Taster Doppelklick
+int encoderState = 0;         // 1 = Drehung nach Links (-); 2 = Drehung nach Rechts (+)
+int Duration_long = 600;      // Zeit für langen Druck
+int Duration_double = 200;    // Zeit für Doppelklick
+int bouncing = 50;            // Zeit für Taster Entprellung
+int encoder_last;             // Speicher letzer Wert Encoder
+int encoder_read;             // Speicher aktueller Wert Encoder
 
 // Servo
-volatile unsigned char servopin[5] = { 13, 14, 27, 33, 32 };  // Pins Servoausgang
-Servo servo[5];                                               // Servo Objekte erzeugen
-int servo_pos[5];                                             // Speicher für Servowerte
-int servocount = 0;                                           // Zähler für Servowerte
+volatile unsigned char servopin[5] = {13, 14, 27, 33, 32}; // Pins Servoausgang
+Servo servo[5];                                            // Servo Objekte erzeugen
+int servo_pos[5];                                          // Speicher für Servowerte
+int servocount = 0;                                        // Zähler für Servowerte
+
+// Serial command pins for SBUS, IBUS -----
+#define COMMAND_RX 13 // pin 13
+#define COMMAND_TX -1 // -1 is just a dummy
 
 // SBUS
-bfs::SbusRx sbus_rx(&Serial2, servopin[0], servopin[0] + 1, true);  // Sbus auf Serial2
+// bfs::SbusRx sbus_rx(&Serial2, servopin[0], servopin[0] + 1, true);  // Sbus auf Serial2
 
-bfs::SbusData sbus_data;
+// bfs::SbusData sbus_data;
+
+bfs::SbusRx sBus(&Serial2);
+std::array<int16_t, bfs::SbusRx::NUM_CH()> SBUSchannels;
 
 // IBUS
-IBusBM IBus;  // IBus object
+IBusBM IBus; // IBus object
 
 // Externe Spannungsversorgung
-int Power_PIN = 36;  // Hardware Pin Externe Spannung in
-bool Power_EN;       // Akku vorhanden
-int Power_Zel;       // Akkuzellen
-float Power_V;       // Akkuspannung in V
-float Power_V_per;   // Akkuspannung in Prozent
+int Power_PIN = 36; // Hardware Pin Externe Spannung in
+bool Power_EN;      // Akku vorhanden
+int Power_Zel;      // Akkuzellen
+float Power_V;      // Akkuspannung in V
+float Power_V_per;  // Akkuspannung in Prozent
 
-//Menüstruktur
-/* 
- * 1 = Servotester_Auswahl       Auswahl -> 10 Servotester_Menu 
+// Menüstruktur
+/*
+ * 1 = Servotester_Auswahl       Auswahl -> 10 Servotester_Menu
  * 2 = Automatik_Modus_Auswahl   Auswahl -> 20 Automatik_Modus_Menu
  * 3 = Impuls_lesen_Auswahl      Auswahl -> 30 Impuls_lesen_Menu
  * 4 = Multiswitch_lesen_Auswahl Auswahl -> 40 Multiswitch_lesen_Menu
  * 5 = SBUS_lesen_Auswahl        Auswahl -> 50 SBUS_lesen_Menu
  * 6 = Einstellung_Auswahl       Auswahl -> 60 Einstellung_Menu
  */
-enum {
+enum
+{
   Servotester_Auswahl = 1,
   Automatik_Modus_Auswahl = 2,
   Impuls_lesen_Auswahl = 3,
@@ -160,29 +179,29 @@ enum {
 
 //-Menu 20 Automatik Modus
 
-int Autopos[5];       //Speicher
-bool Auto_Pause = 0;  //Pause im Auto Modus
+int Autopos[5];      // Speicher
+bool Auto_Pause = 0; // Pause im Auto Modus
 
 //-Menu 40 Multiwitch Futaba lesen
 
-#define kanaele 9     //Anzahl der Kanäle
-int value1[kanaele];  //Speicher
+#define kanaele 9    // Anzahl der Kanäle
+int value1[kanaele]; // Speicher
 
 //-Menu 30 Impuls lesen
 int Impuls_min = 1000;
 int Impuls_max = 2000;
 
 //-Menu
-int Menu = Servotester_Auswahl;  // Aktives Menu
-bool SetupMenu = false;          // Zustand Setupmenu
-int Einstellung = 0;             // Aktives Einstellungsmenu
-bool Edit = false;               // Einstellungen ausgewählt
+int Menu = Servotester_Auswahl; // Aktives Menu
+bool SetupMenu = false;         // Zustand Setupmenu
+int Einstellung = 0;            // Aktives Einstellungsmenu
+bool Edit = false;              // Einstellungen ausgewählt
 
-//OLED
+// OLED
 #ifdef OLED1306
-SSD1306Wire display(0x3c, SDA, SCL);  // Oled Hardware an SDA 21 und SCL 22
+SSD1306Wire display(0x3c, SDA, SCL); // Oled Hardware an SDA 21 und SCL 22
 #else
-SH1106Wire display(0x3c, SDA, SCL);  // Oled Hardware an SDA 21 und SCL 22
+SH1106Wire display(0x3c, SDA, SCL); // Oled Hardware an SDA 21 und SCL 22
 #endif
 
 // Webserver auf Port 80
@@ -197,20 +216,33 @@ int pos1 = 0;
 int pos2 = 0;
 
 // These are used to print the reset reason on startup
-const char *RESET_REASONS[] = { "POWERON_RESET", "NO_REASON", "SW_RESET", "OWDT_RESET", "DEEPSLEEP_RESET", "SDIO_RESET", "TG0WDT_SYS_RESET", "TG1WDT_SYS_RESET", "RTCWDT_SYS_RESET", "INTRUSION_RESET", "TGWDT_CPU_RESET", "SW_CPU_RESET", "RTCWDT_CPU_RESET", "EXT_CPU_RESET", "RTCWDT_BROWN_OUT_RESET", "RTCWDT_RTC_RESET" };
+const char *RESET_REASONS[] = {"POWERON_RESET", "NO_REASON", "SW_RESET", "OWDT_RESET", "DEEPSLEEP_RESET", "SDIO_RESET", "TG0WDT_SYS_RESET", "TG1WDT_SYS_RESET", "RTCWDT_SYS_RESET", "INTRUSION_RESET", "TGWDT_CPU_RESET", "SW_CPU_RESET", "RTCWDT_CPU_RESET", "EXT_CPU_RESET", "RTCWDT_BROWN_OUT_RESET", "RTCWDT_RTC_RESET"};
 
-unsigned long currentTime = millis();      // Aktuelle Zeit
-unsigned long currentTimeAuto = millis();  // Aktuelle Zeit für Auto Modus
-unsigned long currentTimeSpan = millis();  // Aktuelle Zeit für Externe Spannung
-unsigned long previousTime = 0;            // Previous time
-unsigned long previousTimeAuto = 0;        // Previous time für Auto Modus
-unsigned long previousTimeSpan = 0;        // Previous time für Externe Spannung
-unsigned long TimeAuto = 50;               // Auto time
-const long timeoutTime = 2000;             // Define timeout time in milliseconds (example: 2000ms = 2s)
+unsigned long currentTime = millis();     // Aktuelle Zeit
+unsigned long currentTimeAuto = millis(); // Aktuelle Zeit für Auto Modus
+unsigned long currentTimeSpan = millis(); // Aktuelle Zeit für Externe Spannung
+unsigned long previousTime = 0;           // Previous time
+unsigned long previousTimeAuto = 0;       // Previous time für Auto Modus
+unsigned long previousTimeSpan = 0;       // Previous time für Externe Spannung
+long TimeAuto = 50;                       // Auto time
+const long timeoutTime = 2000;            // Define timeout time in milliseconds (example: 2000ms = 2s)
 
-//MAP als Float
-float map_float(float x, float in_min, float in_max, float out_min, float out_max) {
+//
+// =======================================================================================================
+// SUB FUNCTIONS
+// =======================================================================================================
+//
+
+// Map as Float
+float map_float(float x, float in_min, float in_max, float out_min, float out_max)
+{
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+// Convert µs to degrees (°)
+float us2degree(uint16_t value)
+{
+  return (value - 500) / 11.111 - 90.0;
 }
 
 //
@@ -218,17 +250,13 @@ float map_float(float x, float in_min, float in_max, float out_min, float out_ma
 // MAIN ARDUINO SETUP (1x during startup)
 // =======================================================================================================
 //
-void setup() {
-
-#if defined LOW_POWER_MODE
-  setCpuFrequencyMhz(80);  // Lower CPU clock frequency to 80MHz to save energy
-#endif
-
+void setup()
+{
   // Serial setup
-  Serial.begin(115200);  // USB serial (for DEBUG)
+  Serial.begin(115200); // USB serial (for DEBUG)
 
   // Print some system and software info to serial monitor
-  delay(1000);  // Give serial port/connection some time to get ready
+  delay(1000); // Give serial port/connection some time to get ready
   Serial.printf("\n**************************************************************************************************\n");
   Serial.printf("Sevotester Deluxe für ESP32 software version %s\n", codeVersion);
   Serial.printf("Original version: https://github.com/Ziege-One/Servotester_Deluxe\n");
@@ -236,16 +264,18 @@ void setup() {
   Serial.printf("XTAL Frequency: %i MHz, CPU Clock: %i MHz, APB Bus Clock: %i Hz\n", getXtalFrequencyMhz(), getCpuFrequencyMhz(), getApbFrequency());
   Serial.printf("Internal RAM size: %i Byte, Free: %i Byte\n", ESP.getHeapSize(), ESP.getFreeHeap());
   Serial.printf("WiFi MAC address: %s\n", WiFi.macAddress().c_str());
-  for (uint8_t coreNum = 0; coreNum < 2; coreNum++) {
+  for (uint8_t coreNum = 0; coreNum < 2; coreNum++)
+  {
     uint8_t resetReason = rtc_get_reset_reason(coreNum);
-    if (resetReason <= (sizeof(RESET_REASONS) / sizeof(RESET_REASONS[0]))) {
+    if (resetReason <= (sizeof(RESET_REASONS) / sizeof(RESET_REASONS[0])))
+    {
       Serial.printf("Core %i reset reason: %i: %s\n", coreNum, rtc_get_reset_reason(coreNum), RESET_REASONS[resetReason - 1]);
     }
   }
 
-  //EEPROM
+  // EEPROM
   EEPROM.begin(EEPROM_SIZE);
-  EEprom_Load();  // Einstellung laden
+  EEprom_Load(); // Einstellung laden
   Serial.println(WIFI_ON);
   Serial.println(SERVO_STEPS);
   Serial.println(SERVO_MAX);
@@ -253,8 +283,9 @@ void setup() {
   Serial.println(SERVO_Mitte);
   Serial.println(POWER_SCALE);
 
-  if (SERVO_MIN < 500) {  //EEporm int Werte
-    WIFI_ON = 1;          //Wifi ein
+  if (SERVO_MIN < 500)
+  {              // EEporm int Werte
+    WIFI_ON = 1; // Wifi ein
     SERVO_STEPS = 10;
     SERVO_MAX = 2000;
     SERVO_MIN = 1000;
@@ -266,10 +297,12 @@ void setup() {
   // Setup Encoder
   ESP32Encoder::useInternalWeakPullResistors = UP;
   encoder.attachHalfQuad(encoder_Pin1, encoder_Pin2);
-  pinMode(button_PIN, INPUT_PULLUP);  // Button_PIN = Eingang
+  encoder.setFilter(1023);
+  pinMode(button_PIN, INPUT_PULLUP); // Button_PIN = Eingang
 
-  pinMode(Power_PIN, INPUT);  //
+  pinMode(Power_PIN, INPUT); //
 
+  sBus.begin(COMMAND_RX, COMMAND_TX, SBUS_INVERTED, sbusBaud); // begin SBUS communication with compatible receivers
 
   // Setup OLED
   display.init();
@@ -277,66 +310,66 @@ void setup() {
   display.setFont(ArialMT_Plain_10);
   display.drawXbm(0, 0, Logo_width, Logo_height, Logo_bits);
   display.display();
+  delay(1500);
 
-  delay(1000);
+  display.clear();
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.setFont(ArialMT_Plain_10);
+  display.drawString(0, 0, operationString[LANGUAGE]);
+  display.drawString(0, 12, shortPressString[LANGUAGE]);
+  display.drawString(0, 24, longPressString[LANGUAGE]);
+  display.drawString(0, 36, doubleclickString[LANGUAGE]);
+  display.drawString(0, 48, RotateKnobString[LANGUAGE]);
+  display.display();
+  delay(5000);
 
-  if (WIFI_ON == 1) {  //Wifi Ein
+  if (WIFI_ON == 1)
+  { // Wifi Ein
     // Print local IP address and start web server
-    Serial.print("AP (Zugangspunkt) einstellen…");
+    Serial.println(connectingAccessPointString[LANGUAGE]);
     WiFi.softAP(ssid, password);
 
     IPAddress IP = WiFi.softAPIP();
-    Serial.print("AP-IP-Adresse: ");
+    Serial.print(apIpAddressString[LANGUAGE]);
     Serial.println(IP);
 
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_LEFT);
     display.setFont(ArialMT_Plain_16);
-    display.drawString(0, 10, "WiFi on.");
-    display.drawString(0, 26, "IP address: ");
+    display.drawString(0, 10, WiFiOnString[LANGUAGE]);
+    display.drawString(0, 26, ipAddressString[LANGUAGE]);
     display.drawString(0, 42, IP.toString());
     display.display();
     delay(2000);
 
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.setFont(ArialMT_Plain_16);
+    display.setFont(ArialMT_Plain_16); // was 16 size
     display.drawString(0, 0, "SSID: ");
     display.drawString(0, 16, ssid);
-    display.drawString(0, 32, "Password: ");
+    display.drawString(0, 32, passwordString[LANGUAGE]);
     display.drawString(0, 48, password);
     display.display();
-    delay(3000);
+    delay(2500);
 
     Serial.printf("\nWiFi Tx Power Level: %u", WiFi.getTxPower());
-    /*WIFI_POWER_19_5dBm = 78,// 19.5dBm
-  WIFI_POWER_19dBm = 76,// 19dBm
-  WIFI_POWER_18_5dBm = 74,// 18.5dBm
-  WIFI_POWER_17dBm = 68,// 17dBm
-  WIFI_POWER_15dBm = 60,// 15dBm
-  WIFI_POWER_13dBm = 52,// 13dBm
-  WIFI_POWER_11dBm = 44,// 11dBm
-  WIFI_POWER_8_5dBm = 34,// 8.5dBm
-  WIFI_POWER_7dBm = 28,// 7dBm
-  WIFI_POWER_5dBm = 20,// 5dBm
-  WIFI_POWER_2dBm = 8,// 2dBm
-  WIFI_POWER_MINUS_1dBm = -4// -1dBm*/
-    WiFi.setTxPower(WIFI_POWER_7dBm);  // Set power to lowest possible value WIFI_POWER_2dBm (WIFI_POWER_MINUS_1dBm is not working for me)
+    WiFi.setTxPower(cpType); // WiFi and ESP-Now power according to "0_generalSettings.h"
     Serial.printf("\nWiFi Tx Power Level changed to: %u\n\n", WiFi.getTxPower());
 
-    server.begin();  // Start Webserver
+    server.begin(); // Start Webserver
   }
 
   // WiFi off
-  else {
+  else
+  {
     Serial.println("");
-    Serial.println("WiFi off.");
+    Serial.println(WiFiOffString[LANGUAGE]);
 
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_LEFT);
     display.setFont(ArialMT_Plain_16);
     display.drawString(0, 10, "WiFi");
-    display.drawString(0, 26, "off.");
+    display.drawString(0, 26, offString[LANGUAGE]);
     display.display();
     delay(2000);
   }
@@ -344,7 +377,7 @@ void setup() {
   display.clear();
   display.setTextAlignment(TEXT_ALIGN_CENTER);
   display.setFont(ArialMT_Plain_16);
-  display.drawString(64, 10, "Version:");
+  display.drawString(64, 10, "Software Version:");
   display.drawString(64, 26, String(codeVersion));
   display.display();
   delay(1000);
@@ -362,23 +395,30 @@ void setup() {
 // ENCODER & BUTTON
 // =======================================================================================================
 //
-void ButtonRead() {
+void ButtonRead()
+{
 
   buttonState = 0;
-  if (!(digitalRead(button_PIN))) {  // Button gedrückt 0
-    delay(bouncing);                 // Taster entprellen
+  if (!(digitalRead(button_PIN)))
+  {                  // Button gedrückt 0
+    delay(bouncing); // Taster entprellen
     prev = millis();
     buttonState = 1;
-    while ((millis() - prev) <= Duration_long) {
-      if (digitalRead(button_PIN)) {  // Button losgelassen 1 innerhalb Zeit
-        delay(bouncing);              // Taster entprellen
+    while ((millis() - prev) <= Duration_long)
+    {
+      if (digitalRead(button_PIN))
+      {                  // Button losgelassen 1 innerhalb Zeit
+        delay(bouncing); // Taster entprellen
         buttonState = 2;
         prev2 = millis();
-        while ((millis() - prev2) <= Duration_double) {  //Doppelkick abwarten
-          if (!(digitalRead(button_PIN))) {              // Button gedrückt 0 innerhalb Zeit Doppelklick
-            delay(bouncing);                             // Taster entprellen
+        while ((millis() - prev2) <= Duration_double)
+        { // Doppelkick abwarten
+          if (!(digitalRead(button_PIN)))
+          {                  // Button gedrückt 0 innerhalb Zeit Doppelklick
+            delay(bouncing); // Taster entprellen
             buttonState = 3;
-            if (digitalRead(button_PIN)) {  // Button losgelassen 1
+            if (digitalRead(button_PIN))
+            { // Button losgelassen 1
               break;
             }
           }
@@ -386,7 +426,8 @@ void ButtonRead() {
         break;
       }
     }
-    while (!(digitalRead(button_PIN))) {  // Warten bis Button nicht gedückt ist = 1
+    while (!(digitalRead(button_PIN)))
+    { // Warten bis Button nicht gedückt ist = 1
     }
     Serial.print("Buttonstate: ");
     Serial.println(buttonState);
@@ -394,27 +435,49 @@ void ButtonRead() {
 
   encoder_read = encoder.getCount();
 
-  if (previousDebouncTime + 20 > millis()) {
+  if (previousDebouncTime + 20 > millis())
+  {
     encoder_last = encoder_read;
   }
 
-  if (encoder_last > encoder_read) {
-    if (encoder_last > encoder_read + 1) {
-      encoderState = 1;
+  if (encoder_last > encoder_read)
+  {
+    if (encoder_last > encoder_read + 1)
+    {
+      if (ENCODER_INVERTED)
+      {
+        encoderState = 2; // right
+      }
+      else
+      {
+        encoderState = 1; // left
+      }
       encoder_last = encoder_read;
       previousDebouncTime = millis();
     }
-  } else if (encoder_last < encoder_read) {
-    if (encoder_last < encoder_read - 1) {
-      encoderState = 2;
+  }
+  else if (encoder_last < encoder_read)
+  {
+    if (encoder_last < encoder_read - 1)
+    {
+      if (ENCODER_INVERTED)
+      {
+        encoderState = 1; // left
+      }
+      else
+      {
+        encoderState = 2; // right
+      }
       encoder_last = encoder_read;
       previousDebouncTime = millis();
     }
-  } else {
+  }
+  else
+  {
     encoderState = 0;
-    encoder.setCount(1500);  // set starting count value after attaching
+    encoder.setCount(1500); // set starting count value after attaching
     encoder_last = 1500;
-    //delay(100);
+    // delay(100);
   }
 }
 
@@ -423,7 +486,7 @@ void ButtonRead() {
 // MENU
 // =======================================================================================================
 //
-/* 
+/*
  * 1 = Servotester       Auswahl -> 10 Servotester
  * 2 = Automatik Modus   Auswahl -> 20 Automatik Modus
  * 3 = Impuls lesen      Auswahl -> 30 Impuls lesen
@@ -431,780 +494,978 @@ void ButtonRead() {
  * 5 = SBUS lesen        Auswahl -> 50 SBUS lesen
  * 6 = Einstellung       Auswahl -> 60 Einstellung
  */
-void MenuUpdate() {
+void MenuUpdate()
+{
 
   // Servotester Auswahl *********************************************************
-  switch (Menu) {
-    case Servotester_Auswahl:
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.setFont(ArialMT_Plain_24);
-      display.drawString(64, 0, "  Menu >");
-      display.setFont(ArialMT_Plain_16);
-      display.drawString(64, 25, "Servotester");
-      if (Power_EN) {
-        display.setFont(ArialMT_Plain_10);
-        display.setTextAlignment(TEXT_ALIGN_RIGHT);
-        display.drawString(30, 50, String(Power_V));
-        display.setTextAlignment(TEXT_ALIGN_LEFT);
-        display.drawString(30, 50, "V");
-        display.setTextAlignment(TEXT_ALIGN_RIGHT);
-        display.drawString(98, 50, String(Power_V_per));
-        display.setTextAlignment(TEXT_ALIGN_LEFT);
-        display.drawString(98, 50, "%");
-      }
-
-      display.display();
-
-      if (encoderState == 1) {
-        Menu = 1;
-      }
-      if (encoderState == 2) {
-        Menu++;
-      }
-
-      if (buttonState == 2) {
-        Menu = Servotester_Menu;
-      }
-      break;
-
-      // Automatikmodus Auswahl *********************************************************
-    case Automatik_Modus_Auswahl:
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.setFont(ArialMT_Plain_24);
-      display.drawString(64, 0, "< Menu >");
-      display.setFont(ArialMT_Plain_16);
-      display.drawString(64, 25, "Automatik Modus");
-      display.display();
-
-      if (encoderState == 1) {
-        Menu--;
-      }
-      if (encoderState == 2) {
-        Menu++;
-      }
-
-      if (buttonState == 2) {
-        Menu = Automatik_Modus_Menu;
-      }
-      break;
-
-    // Impuls lesen Auswahl *********************************************************
-    case Impuls_lesen_Auswahl:
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.setFont(ArialMT_Plain_24);
-      display.drawString(64, 0, "< Menu >");
-      display.setFont(ArialMT_Plain_16);
-      display.drawString(64, 25, "Impuls lesen");
-      display.drawString(64, 45, "CH1");
-      display.display();
-
-      if (encoderState == 1) {
-        Menu--;
-      }
-      if (encoderState == 2) {
-        Menu++;
-      }
-
-      if (buttonState == 2) {
-        Menu = Impuls_lesen_Menu;
-      }
-      break;
-
-    // Multiswitch lesen Auswahl *********************************************************
-    case Multiswitch_lesen_Auswahl:
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.setFont(ArialMT_Plain_24);
-      display.drawString(64, 0, "< Menu >");
-      display.setFont(ArialMT_Plain_16);
-      display.drawString(64, 25, "Multiswitch");
-      display.drawString(64, 45, "lesen CH1");
-      display.display();
-
-      if (encoderState == 1) {
-        Menu--;
-      }
-      if (encoderState == 2) {
-        Menu++;
-      }
-
-      if (buttonState == 2) {
-        Menu = Multiswitch_lesen_Menu;
-      }
-      break;
-
-    // SBUS lesen Auswahl *********************************************************
-    case SBUS_lesen_Auswahl:
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.setFont(ArialMT_Plain_24);
-      display.drawString(64, 0, "< Menu >");
-      display.setFont(ArialMT_Plain_16);
-      display.drawString(64, 25, "SBUS lesen");
-      display.drawString(64, 45, "CH1");
-      display.display();
-
-      if (encoderState == 1) {
-        Menu--;
-      }
-      if (encoderState == 2) {
-        Menu++;
-      }
-
-      if (buttonState == 2) {
-        Menu = SBUS_lesen_Menu;
-      }
-      break;
-
-    // IBUS lesen Auswahl *********************************************************
-    case IBUS_lesen_Auswahl:
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.setFont(ArialMT_Plain_24);
-      display.drawString(64, 0, "< Menu >");
-      display.setFont(ArialMT_Plain_16);
-      display.drawString(64, 25, "IBUS lesen");
-      display.drawString(64, 45, "CH1");
-      display.display();
-
-      if (encoderState == 1) {
-        Menu--;
-      }
-      if (encoderState == 2) {
-        Menu++;
-      }
-
-      if (buttonState == 2) {
-        Menu = IBUS_lesen_Menu;
-      }
-      break;
-
-    // Einstellung Auswahl *********************************************************
-    case Einstellung_Auswahl:
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.setFont(ArialMT_Plain_24);
-      display.drawString(64, 0, "< Menu  ");
-      display.setFont(ArialMT_Plain_16);
-      display.drawString(64, 25, "Einstellung");
-      display.display();
-
-      if (encoderState == 1) {
-        Menu--;
-      }
-      if (encoderState == 2) {
-        Menu = Einstellung_Auswahl;
-      }
-
-      if (buttonState == 2) {
-        Menu = Einstellung_Menu;
-      }
-      break;
-
-    // Untermenus ================================================================
-
-    // Servotester *********************************************************
-    case Servotester_Menu:
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_LEFT);
+  switch (Menu)
+  {
+  case Servotester_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "  Menu >");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, "Servotester");
+    if (Power_EN)
+    {
       display.setFont(ArialMT_Plain_10);
-      display.drawString(0, 0, "HZ");
-      display.drawString(0, 10, String(SERVO_Hz));
-      display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.setFont(ArialMT_Plain_24);
-      display.drawString(64, 0, "Servo" + String(servocount + 1));
-      //display.drawString(64, 25, String(servo_pos[servocount]) + "°");
-      //display.drawProgressBar(8, 50, 112, 10, ((servo_pos[servocount]*100)/180));
-      display.drawString(64, 25, String(servo_pos[servocount]) + "µs");
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(30, 50, String(Power_V));
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.drawString(30, 50, "V");
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(98, 50, String(Power_V_per));
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.drawString(98, 50, "%");
+    }
+
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu = 1;
+    }
+    if (encoderState == 2)
+    {
+      Menu++;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = Servotester_Menu;
+    }
+    break;
+
+    // Automatikmodus Auswahl *********************************************************
+  case Automatik_Modus_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu >");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, automaticModeString[LANGUAGE]);
+    display.drawString(64, 45, oscillateServoString[LANGUAGE]);
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu++;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = Automatik_Modus_Menu;
+    }
+    break;
+
+  // Impuls lesen Auswahl *********************************************************
+  case Impuls_lesen_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu >");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, PwmImpulseString[LANGUAGE]);
+    display.drawString(64, 45, readCh1Ch5String[LANGUAGE]);
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu++;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = Impuls_lesen_Menu;
+    }
+    break;
+
+  // Multiswitch lesen Auswahl *********************************************************
+  case Multiswitch_lesen_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu >");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, "PPM Multiswitch");
+    display.drawString(64, 45, readCh1String[LANGUAGE]);
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu++;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = Multiswitch_lesen_Menu;
+    }
+    break;
+
+  // SBUS lesen Auswahl *********************************************************
+  case SBUS_lesen_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu >");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, readSbusString[LANGUAGE]);
+    display.drawString(64, 45, "CH1");
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu++;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = SBUS_lesen_Menu;
+    }
+    break;
+
+  // IBUS lesen Auswahl *********************************************************
+  case IBUS_lesen_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu >");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, readIbusString[LANGUAGE]);
+    display.drawString(64, 45, "CH1");
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu++;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = IBUS_lesen_Menu;
+    }
+    break;
+
+  // Einstellung Auswahl *********************************************************
+  case Einstellung_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu  ");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, settingsString[LANGUAGE]);
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu = Einstellung_Auswahl;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = Einstellung_Menu;
+    }
+    break;
+
+  // Untermenus ================================================================
+
+  // Servotester *********************************************************
+  case Servotester_Menu:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(0, 10, "Hz");
+    display.drawString(0, 20, String(SERVO_Hz));
+    display.setTextAlignment(TEXT_ALIGN_RIGHT);
+    display.drawString(128, 10, "°");
+    display.drawString(128, 20, String(us2degree(servo_pos[servocount])));
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "Servo" + String(servocount + 1));
+    // display.drawString(64, 25, String(servo_pos[servocount]) + "°");
+    // display.drawProgressBar(8, 50, 112, 10, ((servo_pos[servocount]*100)/180));
+    display.drawString(64, 25, String(servo_pos[servocount]) + "µs");
+    display.drawProgressBar(8, 50, 112, 10, (((servo_pos[servocount] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)));
+    display.display();
+    if (!SetupMenu)
+    {
+      servo[0].attach(servopin[0], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
+      servo[1].attach(servopin[1], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
+      servo[2].attach(servopin[2], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
+      servo[3].attach(servopin[3], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
+      servo[4].attach(servopin[4], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
+      servo[0].setPeriodHertz(SERVO_Hz);
+      SetupMenu = true;
+    }
+
+    servo[0].writeMicroseconds(servo_pos[0]);
+    servo[1].writeMicroseconds(servo_pos[1]);
+    servo[2].writeMicroseconds(servo_pos[2]);
+    servo[3].writeMicroseconds(servo_pos[3]);
+    servo[4].writeMicroseconds(servo_pos[4]);
+
+    if (encoderState == 1)
+    {
+      servo_pos[servocount] = servo_pos[servocount] - SERVO_STEPS;
+    }
+    if (encoderState == 2)
+    {
+      servo_pos[servocount] = servo_pos[servocount] + SERVO_STEPS;
+    }
+
+    if (servo_pos[servocount] > SERVO_MAX) // Servo MAX
+    {
+      servo_pos[servocount] = SERVO_MAX;
+    }
+    else if (servo_pos[servocount] < SERVO_MIN) // Servo MIN
+    {
+      servo_pos[servocount] = SERVO_MIN;
+    }
+
+    if (buttonState == 1)
+    {
+      Menu = Servotester_Auswahl;
+      SetupMenu = false;
+      servo[0].detach();
+      servo[1].detach();
+      servo[2].detach();
+      servo[3].detach();
+      servo[4].detach();
+      servocount = 0;
+    }
+
+    if (buttonState == 2)
+    {
+      servo_pos[servocount] = SERVO_Mitte; // Servo Mitte
+    }
+
+    if (buttonState == 3)
+    {
+      servocount++; // Servo +
+    }
+
+    if (servocount > 4)
+    {
+      servocount = 0;
+    }
+    break;
+
+  // Automatik Modus *********************************************************
+  case Automatik_Modus_Menu:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(0, 0, delayString[LANGUAGE]);
+    display.drawString(0, 10, String(TimeAuto));
+    display.drawString(0, 20, "ms");
+    display.setTextAlignment(TEXT_ALIGN_RIGHT);
+    display.drawString(128, 10, "°");
+    display.drawString(128, 20, String(us2degree(servo_pos[servocount])));
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "Servo" + String(servocount + 1));
+    display.drawString(64, 25, String(servo_pos[servocount]) + "µs");
+    if (Auto_Pause)
+    {
+      display.setFont(ArialMT_Plain_16);
+      display.drawString(64, 48, "Pause");
+    }
+    else
+    {
       display.drawProgressBar(8, 50, 112, 10, (((servo_pos[servocount] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)));
-      display.display();
-      if (!SetupMenu) {
-        servo[0].attach(servopin[0], SERVO_MIN, SERVO_MAX);  // ServoPIN, MIN, MAX
-        servo[1].attach(servopin[1], SERVO_MIN, SERVO_MAX);  // ServoPIN, MIN, MAX
-        servo[2].attach(servopin[2], SERVO_MIN, SERVO_MAX);  // ServoPIN, MIN, MAX
-        servo[3].attach(servopin[3], SERVO_MIN, SERVO_MAX);  // ServoPIN, MIN, MAX
-        servo[4].attach(servopin[4], SERVO_MIN, SERVO_MAX);  // ServoPIN, MIN, MAX
-        servo[0].setPeriodHertz(SERVO_Hz);
-        SetupMenu = true;
+    }
+    display.display();
+    if (!SetupMenu)
+    {
+      servo[0].attach(servopin[0], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
+      servo[1].attach(servopin[1], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
+      servo[2].attach(servopin[2], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
+      servo[3].attach(servopin[3], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
+      servo[4].attach(servopin[4], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
+      TimeAuto = 50;                                      // Zeit für SERVO Steps +-
+      Auto_Pause = false;                                 // Pause aus
+      SetupMenu = true;
+    }
+
+    currentTimeAuto = millis();
+    if (!Auto_Pause)
+    {
+      if ((currentTimeAuto - previousTimeAuto) > TimeAuto)
+      {
+        previousTimeAuto = currentTimeAuto;
+        if (Autopos[servocount] > 1500)
+        {
+          servo_pos[servocount] = servo_pos[servocount] + SERVO_STEPS;
+        }
+        else
+        {
+          servo_pos[servocount] = servo_pos[servocount] - SERVO_STEPS;
+        }
       }
+    }
 
-      servo[0].writeMicroseconds(servo_pos[0]);
-      servo[1].writeMicroseconds(servo_pos[1]);
-      servo[2].writeMicroseconds(servo_pos[2]);
-      servo[3].writeMicroseconds(servo_pos[3]);
-      servo[4].writeMicroseconds(servo_pos[4]);
+    if (servo_pos[servocount] < SERVO_MIN)
+    {
+      Autopos[servocount] = SERVO_MAX;
+      servo_pos[servocount] = SERVO_MIN;
+    }
+    if (servo_pos[servocount] > SERVO_MAX)
+    {
+      Autopos[servocount] = SERVO_MIN;
+      servo_pos[servocount] = SERVO_MAX;
+    }
 
-      if (encoderState == 1) {
+    servo[servocount].writeMicroseconds(servo_pos[servocount]);
+
+    if (encoderState == 1)
+    {
+      if (Auto_Pause)
+      {
         servo_pos[servocount] = servo_pos[servocount] - SERVO_STEPS;
       }
-      if (encoderState == 2) {
+      else
+      {
+        TimeAuto -= 10;
+      }
+    }
+    if (encoderState == 2)
+    {
+      if (Auto_Pause)
+      {
         servo_pos[servocount] = servo_pos[servocount] + SERVO_STEPS;
       }
-
-      if (servo_pos[servocount] > SERVO_MAX)  //Servo MAX
+      else
       {
-        servo_pos[servocount] = SERVO_MAX;
-      } else if (servo_pos[servocount] < SERVO_MIN)  //Servo MIN
+        TimeAuto += 10;
+      }
+    }
+
+    if (TimeAuto > 100) // TimeAuto MAX
+    {
+      TimeAuto = 100;
+    }
+    else if (TimeAuto < 0) // TimeAuto MIN
+    {
+      TimeAuto = 0;
+    }
+
+    if (servocount > 4)
+    {
+      servocount = 4;
+    }
+    else if (servocount < 0)
+    {
+      servocount = 0;
+    }
+
+    if (buttonState == 1)
+    {
+      Menu = Automatik_Modus_Auswahl;
+      SetupMenu = false;
+      servo[0].detach();
+      servo[1].detach();
+      servo[2].detach();
+      servo[3].detach();
+      servo[4].detach();
+      servocount = 0;
+    }
+
+    if (buttonState == 2)
+    {
+      Auto_Pause = !Auto_Pause;
+    }
+
+    if (buttonState == 3)
+    {
+      servocount++; // Servo +
+    }
+
+    if (servocount > 4)
+    {
+      servocount = 0;
+    }
+    break;
+
+  // PWM Impuls lesen *********************************************************
+  case Impuls_lesen_Menu:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, impulseString[LANGUAGE] + String(servocount + 1));
+    display.drawString(64, 25, String(servo_pos[servocount]) + "µs");
+    display.drawProgressBar(8, 50, 112, 10, (((servo_pos[servocount] - Impuls_min) * 100) / (Impuls_max - Impuls_min)));
+    display.display();
+    if (!SetupMenu)
+    {
+      pinMode(servopin[0], INPUT);
+      pinMode(servopin[1], INPUT);
+      pinMode(servopin[2], INPUT);
+      pinMode(servopin[3], INPUT);
+      pinMode(servopin[4], INPUT);
+      SetupMenu = true;
+    }
+    servo_pos[servocount] = pulseIn(servopin[servocount], HIGH, 50000);
+
+    if (servo_pos[servocount] < Impuls_min)
+    {
+      Impuls_min = servo_pos[servocount];
+    }
+    if (servo_pos[servocount] > Impuls_max)
+    {
+      Impuls_max = servo_pos[servocount];
+    }
+
+    if (encoderState == 1)
+    {
+      servocount--;
+      Impuls_min = 1000;
+      Impuls_max = 2000;
+    }
+    if (encoderState == 2)
+    {
+      servocount++;
+      Impuls_min = 1000;
+      Impuls_max = 2000;
+    }
+
+    if (servocount > 4)
+    {
+      servocount = 4;
+    }
+    else if (servocount < 0)
+    {
+      servocount = 0;
+    }
+
+    if (buttonState == 1)
+    {
+      Menu = Impuls_lesen_Auswahl;
+      SetupMenu = false;
+      servocount = 0;
+    }
+
+    if (buttonState == 2)
+    {
+      Impuls_min = 1000;
+      Impuls_max = 2000;
+    }
+    break;
+
+  // Multiswitch lesen *********************************************************
+  https: // www.modelltruck.net/showthread.php?54795-Futaba-Robbe-Multiswitch-Decoder-mit-Arduino
+  case Multiswitch_lesen_Menu:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(20, 0, String(value1[8]));
+    display.drawString(64, 0, String(value1[0]) + "  " + String(value1[1]));
+    display.drawString(64, 15, String(value1[2]) + "  " + String(value1[3]));
+    display.drawString(64, 30, String(value1[4]) + "  " + String(value1[5]));
+    display.drawString(64, 45, String(value1[6]) + "  " + String(value1[7]));
+    display.display();
+    if (!SetupMenu)
+    {
+      pinMode(servopin[0], INPUT);
+      SetupMenu = true;
+    }
+
+    value1[8] = 1500;
+
+    while (value1[8] > 1000) // Wait for the beginning of the frame (1000)
+    {
+      value1[8] = pulseIn(servopin[0], HIGH, 50000);
+    }
+
+    for (int x = 0; x <= kanaele - 1; x++) // Loop to store all the channel positions
+    {
+      value1[x] = pulseIn(servopin[0], HIGH, 50000);
+    }
+
+    if (buttonState == 1)
+    {
+      Menu = Multiswitch_lesen_Auswahl;
+      SetupMenu = false;
+    }
+
+    break;
+
+  // SBUS lesen *********************************************************
+  case SBUS_lesen_Menu:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_RIGHT);
+    display.setFont(ArialMT_Plain_10);
+
+    sBus.read();
+    SBUSchannels = sBus.ch();
+
+    display.drawString(32, 0, String(map(SBUSchannels[0], 172, 1811, 1000, 2000)));
+    display.drawString(64, 0, String(map(SBUSchannels[1], 172, 1811, 1000, 2000)));
+    display.drawString(96, 0, String(map(SBUSchannels[2], 172, 1811, 1000, 2000)));
+    display.drawString(128, 0, String(map(SBUSchannels[3], 172, 1811, 1000, 2000)));
+
+    display.drawString(32, 15, String(map(SBUSchannels[4], 172, 1811, 1000, 2000)));
+    display.drawString(64, 15, String(map(SBUSchannels[5], 172, 1811, 1000, 2000)));
+    display.drawString(96, 15, String(map(SBUSchannels[6], 172, 1811, 1000, 2000)));
+    display.drawString(128, 15, String(map(SBUSchannels[7], 172, 1811, 1000, 2000)));
+
+    display.drawString(32, 30, String(map(SBUSchannels[8], 172, 1811, 1000, 2000)));
+    display.drawString(64, 30, String(map(SBUSchannels[9], 172, 1811, 1000, 2000)));
+    display.drawString(96, 30, String(map(SBUSchannels[10], 172, 1811, 1000, 2000)));
+    display.drawString(128, 30, String(map(SBUSchannels[11], 172, 1811, 1000, 2000)));
+
+    display.drawString(32, 45, String(map(SBUSchannels[12], 172, 1811, 1000, 2000)));
+    display.drawString(64, 45, String(map(SBUSchannels[13], 172, 1811, 1000, 2000)));
+    display.drawString(96, 45, String(map(SBUSchannels[14], 172, 1811, 1000, 2000)));
+    display.drawString(128, 45, String(map(SBUSchannels[15], 172, 1811, 1000, 2000)));
+    display.display();
+
+    if (encoderState == 1)
+    {
+    }
+    if (encoderState == 2)
+    {
+    }
+
+    if (buttonState == 1)
+    {
+      Menu = SBUS_lesen_Auswahl;
+      SetupMenu = false;
+    }
+
+    if (buttonState == 2)
+    {
+    }
+    break;
+
+  // IBUS lesen *********************************************************
+  case IBUS_lesen_Menu:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_RIGHT);
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(32, 0, String(IBus.readChannel(0)));
+    display.drawString(64, 0, String(IBus.readChannel(1)));
+    display.drawString(96, 0, String(IBus.readChannel(2)));
+    display.drawString(128, 0, String(IBus.readChannel(3)));
+
+    display.drawString(32, 15, String(IBus.readChannel(4)));
+    display.drawString(64, 15, String(IBus.readChannel(5)));
+    display.drawString(96, 15, String(IBus.readChannel(6)));
+    display.drawString(128, 15, String(IBus.readChannel(7)));
+
+    display.drawString(32, 30, String(IBus.readChannel(8)));
+    display.drawString(64, 30, String(IBus.readChannel(9)));
+    display.drawString(96, 30, String(IBus.readChannel(10)));
+    display.drawString(128, 30, String(IBus.readChannel(11)));
+
+    display.drawString(32, 45, String(IBus.readChannel(12)));
+    display.drawString(64, 45, String(IBus.readChannel(13)));
+    // display.drawString( 96, 45,  String(IBus.readChannel(14)));
+    // display.drawString(128, 45,  String(IBus.readChannel(15)));
+    display.display();
+
+    if (!SetupMenu)
+    {
+      IBus.begin(Serial2, IBUSBM_NOTIMER, COMMAND_RX, COMMAND_RX); // iBUS object connected to serial2 RX2 pin and use timer 1
+      SetupMenu = true;
+    }
+
+    IBus.loop(); // call internal loop function to update the communication to the receiver
+
+    if (encoderState == 1)
+    {
+    }
+    if (encoderState == 2)
+    {
+    }
+
+    if (buttonState == 1)
+    {
+      Menu = IBUS_lesen_Auswahl;
+      SetupMenu = false;
+    }
+
+    if (buttonState == 2)
+    {
+    }
+    break;
+
+  // Einstellung *********************************************************
+  case Einstellung_Menu:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, settingsString[LANGUAGE]);
+    display.setFont(ArialMT_Plain_16);
+    switch (Einstellung)
+    {
+    case 0:
+      display.drawString(64, 25, "Wifi");
+      if (WIFI_ON == 1)
       {
-        servo_pos[servocount] = SERVO_MIN;
+        display.drawString(64, 45, onString[LANGUAGE]);
       }
-
-      if (buttonState == 1) {
-        Menu = Servotester_Auswahl;
-        SetupMenu = false;
-        servo[0].detach();
-        servo[1].detach();
-        servo[2].detach();
-        servo[3].detach();
-        servo[4].detach();
-        servocount = 0;
-      }
-
-      if (buttonState == 2) {
-        servo_pos[servocount] = SERVO_Mitte;  //Servo Mitte
-      }
-
-      if (buttonState == 3) {
-        servocount++;  //Servo +
-      }
-
-      if (servocount > 4) {
-        servocount = 0;
+      else
+      {
+        display.drawString(64, 45, offString[LANGUAGE]);
       }
       break;
-
-    // Automatik Modus *********************************************************
-    case Automatik_Modus_Menu:
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.setFont(ArialMT_Plain_24);
-      display.drawString(64, 0, "Servo" + String(servocount + 1));
-      display.drawString(64, 25, String(servo_pos[servocount]) + "µs");
-      if (Auto_Pause) {
-        display.setFont(ArialMT_Plain_16);
-        display.drawString(64, 48, "Pause");
-      } else {
-        display.drawProgressBar(8, 50, 112, 10, (((servo_pos[servocount] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)));
-      }
-      display.display();
-      if (!SetupMenu) {
-        servo[0].attach(servopin[0], SERVO_MIN, SERVO_MAX);  // ServoPIN, MIN, MAX
-        servo[1].attach(servopin[1], SERVO_MIN, SERVO_MAX);  // ServoPIN, MIN, MAX
-        servo[2].attach(servopin[2], SERVO_MIN, SERVO_MAX);  // ServoPIN, MIN, MAX
-        servo[3].attach(servopin[3], SERVO_MIN, SERVO_MAX);  // ServoPIN, MIN, MAX
-        servo[4].attach(servopin[4], SERVO_MIN, SERVO_MAX);  // ServoPIN, MIN, MAX
-        TimeAuto = 50;                                       //Zeit für SERVO Steps +-
-        Auto_Pause = false;                                  //Pause aus
-        SetupMenu = true;
-      }
-
-      currentTimeAuto = millis();
-      if (!Auto_Pause) {
-        if ((currentTimeAuto - previousTimeAuto) > TimeAuto) {
-          previousTimeAuto = currentTimeAuto;
-          if (Autopos[servocount] > 1500) {
-            servo_pos[servocount] = servo_pos[servocount] + SERVO_STEPS;
-          } else {
-            servo_pos[servocount] = servo_pos[servocount] - SERVO_STEPS;
-          }
-        }
-      }
-
-      if (servo_pos[servocount] < SERVO_MIN) {
-        Autopos[servocount] = SERVO_MAX;
-        servo_pos[servocount] = SERVO_MIN;
-      }
-      if (servo_pos[servocount] > SERVO_MAX) {
-        Autopos[servocount] = SERVO_MIN;
-        servo_pos[servocount] = SERVO_MAX;
-      }
-
-      servo[servocount].writeMicroseconds(servo_pos[servocount]);
-
-      if (encoderState == 1) {
-        if (Auto_Pause) {
-          servo_pos[servocount] = servo_pos[servocount] - SERVO_STEPS;
-        } else {
-          TimeAuto--;
-        }
-      }
-      if (encoderState == 2) {
-        if (Auto_Pause) {
-          servo_pos[servocount] = servo_pos[servocount] + SERVO_STEPS;
-        } else {
-          TimeAuto++;
-        }
-      }
-
-      if (TimeAuto > 100)  //TimeAuto MAX
-      {
-        TimeAuto = 100;
-      } else if (TimeAuto < 5)  //TimeAuto MIN
-      {
-        TimeAuto = 5;
-      }
-
-      if (servocount > 4) {
-        servocount = 4;
-      } else if (servocount < 0) {
-        servocount = 0;
-      }
-
-      if (buttonState == 1) {
-        Menu = Automatik_Modus_Auswahl;
-        SetupMenu = false;
-        servo[0].detach();
-        servo[1].detach();
-        servo[2].detach();
-        servo[3].detach();
-        servo[4].detach();
-        servocount = 0;
-      }
-
-      if (buttonState == 2) {
-        Auto_Pause = !Auto_Pause;
-      }
-
-      if (buttonState == 3) {
-        servocount++;  //Servo +
-      }
-
-      if (servocount > 4) {
-        servocount = 0;
-      }
+    case 1:
+      display.drawString(64, 25, servoStepsString[LANGUAGE]);
+      display.drawString(64, 45, String(SERVO_STEPS));
       break;
-
-    // Impuls lesen *********************************************************
-    case Impuls_lesen_Menu:
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.setFont(ArialMT_Plain_24);
-      display.drawString(64, 0, "Impuls" + String(servocount + 1));
-      display.drawString(64, 25, String(servo_pos[servocount]) + "µs");
-      display.drawProgressBar(8, 50, 112, 10, (((servo_pos[servocount] - Impuls_min) * 100) / (Impuls_max - Impuls_min)));
-      display.display();
-      if (!SetupMenu) {
-        pinMode(servopin[0], INPUT);
-        pinMode(servopin[1], INPUT);
-        pinMode(servopin[2], INPUT);
-        pinMode(servopin[3], INPUT);
-        pinMode(servopin[4], INPUT);
-        SetupMenu = true;
-      }
-      servo_pos[servocount] = pulseIn(servopin[servocount], HIGH);
-
-      if (servo_pos[servocount] < Impuls_min) {
-        Impuls_min = servo_pos[servocount];
-      }
-      if (servo_pos[servocount] > Impuls_max) {
-        Impuls_max = servo_pos[servocount];
-      }
-
-      if (encoderState == 1) {
-        servocount--;
-        Impuls_min = 1000;
-        Impuls_max = 2000;
-      }
-      if (encoderState == 2) {
-        servocount++;
-        Impuls_min = 1000;
-        Impuls_max = 2000;
-      }
-
-      if (servocount > 4) {
-        servocount = 4;
-      } else if (servocount < 0) {
-        servocount = 0;
-      }
-
-      if (buttonState == 1) {
-        Menu = Impuls_lesen_Auswahl;
-        SetupMenu = false;
-        servocount = 0;
-      }
-
-      if (buttonState == 2) {
-        Impuls_min = 1000;
-        Impuls_max = 2000;
-      }
+    case 2:
+      display.drawString(64, 25, servoMaxString[LANGUAGE]);
+      display.drawString(64, 45, String(SERVO_MAX));
       break;
-
-    // Multiswitch lesen *********************************************************
-    case Multiswitch_lesen_Menu:
-      display.clear();
+    case 3:
+      display.drawString(64, 25, servoMinString[LANGUAGE]);
+      display.drawString(64, 45, String(SERVO_MIN));
+      break;
+    case 4:
+      display.drawString(64, 25, servoCenterString[LANGUAGE]);
+      display.drawString(64, 45, String(SERVO_Mitte));
+      break;
+    case 5:
+      display.drawString(64, 25, servoHzString[LANGUAGE]);
+      display.drawString(64, 45, String(SERVO_Hz));
+      break;
+    case 6:
+      display.drawString(64, 25, PowerScaleString[LANGUAGE]);
+      display.drawString(64, 45, String(POWER_SCALE));
+      display.setFont(ArialMT_Plain_10);
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(110, 50, String(Power_V));
       display.setTextAlignment(TEXT_ALIGN_LEFT);
-      display.setFont(ArialMT_Plain_10);
-      display.drawString(20, 0, String(value1[8]));
-      display.drawString(64, 0, String(value1[0]) + "  " + String(value1[1]));
-      display.drawString(64, 15, String(value1[2]) + "  " + String(value1[3]));
-      display.drawString(64, 30, String(value1[4]) + "  " + String(value1[5]));
-      display.drawString(64, 45, String(value1[6]) + "  " + String(value1[7]));
-      display.display();
-      if (!SetupMenu) {
-        pinMode(servopin[0], INPUT);
-        SetupMenu = true;
-      }
-
-      value1[8] = 1500;
-
-      while (value1[8] > 1000)  //Wait for the beginning of the frame
+      display.drawString(110, 50, "V");
+      break;
+    case 7:
+      display.drawString(64, 25, "SBUS");
+      if (SBUS_INVERTED == 1)
       {
-        value1[8] = pulseIn(servopin[0], HIGH);
+        display.drawString(64, 45, standardString[LANGUAGE]);
       }
-
-      for (int x = 0; x <= kanaele - 1; x++)  //Loop to store all the channel position
+      else
       {
-        value1[x] = pulseIn(servopin[0], HIGH);
-      }
-
-
-      if (encoderState == 1) {
-      }
-      if (encoderState == 2) {
-      }
-
-      if (buttonState == 1) {
-        Menu = Multiswitch_lesen_Auswahl;
-        SetupMenu = false;
-      }
-
-      if (buttonState == 2) {
+        display.drawString(64, 45, inversedString[LANGUAGE]);
       }
       break;
-
-    // SBUS lesen *********************************************************
-    case SBUS_lesen_Menu:
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.setFont(ArialMT_Plain_10);
-      display.drawString(32, 0, String(sbus_data.ch[0]));
-      display.drawString(64, 0, String(sbus_data.ch[1]));
-      display.drawString(96, 0, String(sbus_data.ch[2]));
-      display.drawString(128, 0, String(sbus_data.ch[3]));
-
-      display.drawString(32, 15, String(sbus_data.ch[4]));
-      display.drawString(64, 15, String(sbus_data.ch[5]));
-      display.drawString(96, 15, String(sbus_data.ch[6]));
-      display.drawString(128, 15, String(sbus_data.ch[7]));
-
-      display.drawString(32, 30, String(sbus_data.ch[8]));
-      display.drawString(64, 30, String(sbus_data.ch[9]));
-      display.drawString(96, 30, String(sbus_data.ch[10]));
-      display.drawString(128, 30, String(sbus_data.ch[11]));
-
-      display.drawString(32, 45, String(sbus_data.ch[12]));
-      display.drawString(64, 45, String(sbus_data.ch[13]));
-      display.drawString(96, 45, String(sbus_data.ch[14]));
-      display.drawString(128, 45, String(sbus_data.ch[15]));
-      display.display();
-
-      if (!SetupMenu) {
-        sbus_rx.Begin();
-        SetupMenu = true;
+    case 8:
+      display.drawString(64, 25, encoderDirectionString[LANGUAGE]);
+      if (ENCODER_INVERTED == 0)
+      {
+        display.drawString(64, 45, standardString[LANGUAGE]);
       }
-
-      if (sbus_rx.Read()) {
-        sbus_data = sbus_rx.data();
-      }
-
-
-      if (encoderState == 1) {
-      }
-      if (encoderState == 2) {
-      }
-
-      if (buttonState == 1) {
-        Menu = SBUS_lesen_Auswahl;
-        SetupMenu = false;
-      }
-
-      if (buttonState == 2) {
+      else
+      {
+        display.drawString(64, 45, inversedString[LANGUAGE]);
       }
       break;
-
-    // IBUS lesen *********************************************************
-    case IBUS_lesen_Menu:
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.setFont(ArialMT_Plain_10);
-      display.drawString(32, 0, String(IBus.readChannel(0)));
-      display.drawString(64, 0, String(IBus.readChannel(1)));
-      display.drawString(96, 0, String(IBus.readChannel(2)));
-      display.drawString(128, 0, String(IBus.readChannel(3)));
-
-      display.drawString(32, 15, String(IBus.readChannel(4)));
-      display.drawString(64, 15, String(IBus.readChannel(5)));
-      display.drawString(96, 15, String(IBus.readChannel(6)));
-      display.drawString(128, 15, String(IBus.readChannel(7)));
-
-      display.drawString(32, 30, String(IBus.readChannel(8)));
-      display.drawString(64, 30, String(IBus.readChannel(9)));
-      display.drawString(96, 30, String(IBus.readChannel(10)));
-      display.drawString(128, 30, String(IBus.readChannel(11)));
-
-      display.drawString(32, 45, String(IBus.readChannel(12)));
-      display.drawString(64, 45, String(IBus.readChannel(13)));
-      //display.drawString( 96, 45,  String(IBus.readChannel(14)));
-      //display.drawString(128, 45,  String(IBus.readChannel(15)));
-      display.display();
-
-      if (!SetupMenu) {
-        IBus.begin(Serial2, IBUSBM_NOTIMER, servopin[0], servopin[1]);  // iBUS object connected to serial2 RX2 pin and use timer 1
-        SetupMenu = true;
+    case 9:
+      display.drawString(64, 25, languageString[LANGUAGE]);
+      if (LANGUAGE == 0)
+      {
+        display.drawString(64, 45, "English");
       }
-
-      IBus.loop();  // call internal loop function to update the communication to the receiver
-                    //if (sbus_rx.Read()) {
-                    //    sbus_data = sbus_rx.ch();
-                    //}
-
-
-      if (encoderState == 1) {
-      }
-      if (encoderState == 2) {
-      }
-
-      if (buttonState == 1) {
-        Menu = IBUS_lesen_Auswahl;
-        SetupMenu = false;
-      }
-
-      if (buttonState == 2) {
+      else
+      {
+        display.drawString(64, 45, "Deutsch");
       }
       break;
+    }
+    if (Edit)
+    {
+      display.drawString(10, 45, "->");
+    }
+    display.display();
+    if (!SetupMenu)
+    {
 
-    // Einstellung *********************************************************
-    case Einstellung_Menu:
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.setFont(ArialMT_Plain_24);
-      display.drawString(64, 0, "< Einstellung  >");
-      display.setFont(ArialMT_Plain_16);
-      switch (Einstellung) {
+      SetupMenu = true;
+    }
+
+    if (encoderState == 1) // Encoder left turn
+    {
+      if (!Edit)
+      {
+        Einstellung--;
+      }
+      else
+      {
+        switch (Einstellung)
+        {
         case 0:
-          display.drawString(64, 25, "Wifi");
-          if (WIFI_ON == 1) {
-            display.drawString(64, 45, "Ein");
-          } else {
-            display.drawString(64, 45, "Aus");
-          }
+          WIFI_ON--;
           break;
         case 1:
-          display.drawString(64, 25, "Servo Steps µs");
-          display.drawString(64, 45, String(SERVO_STEPS));
+          SERVO_STEPS--;
           break;
         case 2:
-          display.drawString(64, 25, "Servo MAX µs");
-          display.drawString(64, 45, String(SERVO_MAX));
+          SERVO_MAX--;
           break;
         case 3:
-          display.drawString(64, 25, "Servo MIN µs");
-          display.drawString(64, 45, String(SERVO_MIN));
+          SERVO_MIN--;
           break;
         case 4:
-          display.drawString(64, 25, "Servo Mitte µs");
-          display.drawString(64, 45, String(SERVO_Mitte));
+          SERVO_Mitte--;
           break;
         case 5:
-          display.drawString(64, 25, "Servo Hz");
-          display.drawString(64, 45, String(SERVO_Hz));
+          SERVO_Hz--;
           break;
         case 6:
-          display.drawString(64, 25, "POWER Scale");
-          display.drawString(64, 45, String(POWER_SCALE));
-          display.setFont(ArialMT_Plain_10);
-          display.setTextAlignment(TEXT_ALIGN_RIGHT);
-          display.drawString(110, 50, String(Power_V));
-          display.setTextAlignment(TEXT_ALIGN_LEFT);
-          display.drawString(110, 50, "V");
+          POWER_SCALE--;
           break;
-      }
-      if (Edit) {
-        display.drawString(10, 45, "->");
-      }
-      display.display();
-      if (!SetupMenu) {
-
-        SetupMenu = true;
-      }
-
-      if (encoderState == 1) {
-        if (!Edit) {
-          Einstellung--;
-        } else {
-          switch (Einstellung) {
-            case 0:
-              WIFI_ON--;
-              break;
-            case 1:
-              SERVO_STEPS--;
-              break;
-            case 2:
-              SERVO_MAX--;
-              break;
-            case 3:
-              SERVO_MIN--;
-              break;
-            case 4:
-              SERVO_Mitte--;
-              break;
-            case 5:
-              SERVO_Hz--;
-              break;
-            case 6:
-              POWER_SCALE--;
-              break;
-          }
+        case 7:
+          SBUS_INVERTED--;
+          break;
+        case 8:
+          ENCODER_INVERTED--;
+          break;
+        case 9:
+          LANGUAGE--;
+          break;
         }
       }
-      if (encoderState == 2) {
-        if (!Edit) {
-          Einstellung++;
-        } else {
-          switch (Einstellung) {
-            case 0:
-              WIFI_ON++;
-              break;
-            case 1:
-              SERVO_STEPS++;
-              break;
-            case 2:
-              SERVO_MAX++;
-              break;
-            case 3:
-              SERVO_MIN++;
-              break;
-            case 4:
-              SERVO_Mitte++;
-              break;
-            case 5:
-              SERVO_Hz++;
-              break;
-            case 6:
-              POWER_SCALE++;
-              break;
-          }
+    }
+    if (encoderState == 2) // Encoder right turn
+    {
+      if (!Edit)
+      {
+        Einstellung++;
+      }
+      else
+      {
+        switch (Einstellung)
+        {
+        case 0:
+          WIFI_ON++;
+          break;
+        case 1:
+          SERVO_STEPS++;
+          break;
+        case 2:
+          SERVO_MAX++;
+          break;
+        case 3:
+          SERVO_MIN++;
+          break;
+        case 4:
+          SERVO_Mitte++;
+          break;
+        case 5:
+          SERVO_Hz++;
+          break;
+        case 6:
+          POWER_SCALE++;
+          break;
+        case 7:
+          SBUS_INVERTED++;
+          break;
+        case 8:
+          ENCODER_INVERTED++;
+          break;
+        case 9:
+          LANGUAGE++;
+          break;
         }
       }
+    }
 
-      if (Einstellung > 6) {
-        Einstellung = 0;
-      } else if (Einstellung < 0) {
-        Einstellung = 6;
+    // Menu range
+    if (Einstellung > 9)
+    {
+      Einstellung = 0;
+    }
+    else if (Einstellung < 0)
+    {
+      Einstellung = 9;
+    }
+
+    // Limits
+    if (LANGUAGE < 0)
+    { // Language nicht unter 0
+      LANGUAGE = 0;
+    }
+
+    if (LANGUAGE > 1)
+    { // Language nicht über 1
+      LANGUAGE = 1;
+    }
+
+    if (ENCODER_INVERTED < 0)
+    { // Encoder inverted nicht unter 0
+      ENCODER_INVERTED = 0;
+    }
+
+    if (ENCODER_INVERTED > 1)
+    { // Encoder inverted nicht über 1
+      ENCODER_INVERTED = 1;
+    }
+
+    if (SBUS_INVERTED < 0)
+    { // SBUS inverted nicht unter 0
+      SBUS_INVERTED = 0;
+    }
+
+    if (SBUS_INVERTED > 1)
+    { // SBUS inverted nicht über 1
+      SBUS_INVERTED = 1;
+    }
+
+    if (WIFI_ON < 0)
+    { // Wifi off nicht unter 0
+      WIFI_ON = 0;
+    }
+
+    if (WIFI_ON > 1)
+    { // Wifi on nicht über 1
+      WIFI_ON = 1;
+    }
+
+    if (SERVO_STEPS < 0)
+    { // Steps nicht unter 0
+      SERVO_STEPS = 0;
+    }
+
+    if (SERVO_MAX < SERVO_Mitte)
+    { // Max nicht unter Mitte
+      SERVO_MAX = SERVO_Mitte + 1;
+    }
+
+    if (SERVO_MAX > 2500)
+    { // Max nicht über 2500
+      SERVO_MAX = 2500;
+    }
+
+    if (SERVO_MIN > SERVO_Mitte)
+    { // Min nicht über Mitte
+      SERVO_MIN = SERVO_Mitte - 1;
+    }
+
+    if (SERVO_MIN < 500)
+    { // Min nicht unter 500
+      SERVO_MIN = 500;
+    }
+
+    if (SERVO_Mitte > SERVO_MAX)
+    { // Mitte nicht über Max
+      SERVO_Mitte = SERVO_MAX - 1;
+    }
+
+    if (SERVO_Mitte < SERVO_MIN)
+    { // Mitte nicht unter Min
+      SERVO_Mitte = SERVO_MIN + 1;
+    }
+
+    if (SERVO_Hz == 51)
+    {
+      SERVO_Hz = 200;
+    }
+
+    if (SERVO_Hz == 201)
+    {
+      SERVO_Hz = 333;
+    }
+
+    if (SERVO_Hz == 334)
+    {
+      SERVO_Hz = 560;
+      SERVO_MAX = 1000;
+      SERVO_MIN = 500;
+      SERVO_Mitte = 760;
+    }
+
+    if (SERVO_Hz == 561)
+    {
+      SERVO_Hz = 50;
+      SERVO_MAX = 2000;
+      SERVO_MIN = 1000;
+      SERVO_Mitte = 1500;
+    }
+
+    if (SERVO_Hz == 49)
+    {
+      SERVO_Hz = 560;
+      SERVO_MAX = 1000;
+      SERVO_MIN = 500;
+      SERVO_Mitte = 760;
+    }
+
+    if (SERVO_Hz == 559)
+    {
+      SERVO_Hz = 333;
+      SERVO_MAX = 2000;
+      SERVO_MIN = 1000;
+      SERVO_Mitte = 1500;
+    }
+
+    if (SERVO_Hz == 332)
+    {
+      SERVO_Hz = 200;
+    }
+
+    if (SERVO_Hz == 199)
+    {
+      SERVO_Hz = 50;
+    }
+
+    if (SERVO_Hz == 560)
+    {
+      SERVO_MAX = 1000;
+      SERVO_MIN = 500;
+      SERVO_Mitte = 760;
+    }
+
+    if (buttonState == 1)
+    {
+      Menu = Einstellung_Auswahl;
+      SetupMenu = false;
+    }
+
+    if (buttonState == 2)
+    {
+      if (Edit)
+      {
+        Edit = false;
+        // Speichern
+        EEprom_Save();
       }
-
-      if (WIFI_ON < 0) {  //Wifi off nicht unter 0
-        WIFI_ON = 0;
+      else
+      {
+        Edit = true;
       }
+    }
+    break;
 
-      if (WIFI_ON > 1) {  //Wifi on nicht über 1
-        WIFI_ON = 1;
-      }
-
-      if (SERVO_STEPS < 0) {  //Steps nicht unter 0
-        SERVO_STEPS = 0;
-      }
-
-      if (SERVO_MAX < SERVO_Mitte) {  //Max nicht unter Mitte
-        SERVO_MAX = SERVO_Mitte + 1;
-      }
-
-      if (SERVO_MAX > 2500) {  //Max nicht über 2500
-        SERVO_MAX = 2500;
-      }
-
-      if (SERVO_MIN > SERVO_Mitte) {  //Min nicht über Mitte
-        SERVO_MIN = SERVO_Mitte - 1;
-      }
-
-      if (SERVO_MIN < 500) {  //Min nicht unter 500
-        SERVO_MIN = 500;
-      }
-
-      if (SERVO_Mitte > SERVO_MAX) {  //Mitte nicht über Max
-        SERVO_Mitte = SERVO_MAX - 1;
-      }
-
-      if (SERVO_Mitte < SERVO_MIN) {  //Mitte nicht unter Min
-        SERVO_Mitte = SERVO_MIN + 1;
-      }
-
-      if (SERVO_Hz == 51) {
-        SERVO_Hz = 200;
-      }
-
-      if (SERVO_Hz == 201) {
-        SERVO_Hz = 333;
-      }
-
-      if (SERVO_Hz == 334) {
-        SERVO_Hz = 560;
-        SERVO_MAX = 1000;
-        SERVO_MIN = 500;
-        SERVO_Mitte = 760;
-      }
-
-      if (SERVO_Hz == 561) {
-        SERVO_Hz = 50;
-        SERVO_MAX = 2000;
-        SERVO_MIN = 1000;
-        SERVO_Mitte = 1500;
-      }
-
-      if (SERVO_Hz == 49) {
-        SERVO_Hz = 560;
-        SERVO_MAX = 1000;
-        SERVO_MIN = 500;
-        SERVO_Mitte = 760;
-      }
-
-      if (SERVO_Hz == 559) {
-        SERVO_Hz = 333;
-        SERVO_MAX = 2000;
-        SERVO_MIN = 1000;
-        SERVO_Mitte = 1500;
-      }
-
-      if (SERVO_Hz == 332) {
-        SERVO_Hz = 200;
-      }
-
-      if (SERVO_Hz == 199) {
-        SERVO_Hz = 50;
-      }
-
-      if (SERVO_Hz == 560) {
-        SERVO_MAX = 1000;
-        SERVO_MIN = 500;
-        SERVO_Mitte = 760;
-      }
-
-
-      if (buttonState == 1) {
-        Menu = Einstellung_Auswahl;
-        SetupMenu = false;
-      }
-
-      if (buttonState == 2) {
-        if (Edit) {
-          Edit = false;
-          //Speichern
-          EEprom_Save();
-        } else {
-          Edit = true;
-        }
-      }
-      break;
-
-
-    default:
-      // Tue etwas, im Defaultfall
-      // Dieser Fall ist optional
-      Menu = Servotester_Auswahl;
-      break;  // Wird nicht benötigt, wenn Statement(s) vorhanden sind
+  default:
+    // Tue etwas, im Defaultfall
+    // Dieser Fall ist optional
+    Menu = Servotester_Auswahl;
+    break; // Wird nicht benötigt, wenn Statement(s) vorhanden sind
   }
 }
 
@@ -1212,12 +1473,13 @@ void MenuUpdate() {
 // EXTERNE SPANNUNGSVERSORGUNG
 // =======================================================================================================
 //
-void Extern_Span() {
+void Extern_Span()
+{
 
   currentTimeSpan = millis();
-  if ((currentTimeSpan - previousTimeSpan) > 2000) {
+  if ((currentTimeSpan - previousTimeSpan) > 2000)
+  {
     previousTimeSpan = currentTimeSpan;
-
 
     // ADC & DAC calibration https://hackaday.io/project/27511-microfluidics-control-system/log/69406-adc-dac-calibration
     int val = analogRead(Power_PIN);
@@ -1242,28 +1504,33 @@ void Extern_Span() {
 
     Power_EN = 1;
 
-    if (Power_V > 21)  //6s Lipo
+    if (Power_V > 21) // 6s Lipo
     {
       Power_Zel = 6;
-    } else if (Power_V > 16.8)  //5s Lipo
+    }
+    else if (Power_V > 16.8) // 5s Lipo
     {
       Power_Zel = 5;
-    } else if (Power_V > 12.6)  //4s Lipo
+    }
+    else if (Power_V > 12.6) // 4s Lipo
     {
       Power_Zel = 4;
-    } else if (Power_V > 8.4)  //3s Lipo
+    }
+    else if (Power_V > 8.4) // 3s Lipo
     {
       Power_Zel = 3;
-    } else if (Power_V > 4.2)  //2s Lipo
+    }
+    else if (Power_V > 4.3) // 2s Lipo
     {
       Power_Zel = 2;
-    } else  //1s Lipo kein Akku angeschlossen
+    }
+    else // 1s Lipo kein Akku angeschlossen
     {
       Power_Zel = 1;
       Power_EN = 0;
     }
 
-    Power_V_per = (Power_V / Power_Zel);  // Prozentanzeige
+    Power_V_per = (Power_V / Power_Zel); // Prozentanzeige
     Power_V_per = map_float(Power_V_per, 3.5, 4.2, 0, 100);
   }
 }
@@ -1273,7 +1540,8 @@ void Extern_Span() {
 // EEPROM
 // =======================================================================================================
 //
-void EEprom_Load() {
+void EEprom_Load()
+{
   WIFI_ON = EEPROM.readInt(adr_eprom_WIFI_ON);
   SERVO_STEPS = EEPROM.readInt(adr_eprom_SERVO_STEPS);
   SERVO_MAX = EEPROM.readInt(adr_eprom_SERVO_MAX);
@@ -1281,10 +1549,14 @@ void EEprom_Load() {
   SERVO_Mitte = EEPROM.readInt(adr_eprom_SERVO_Mitte);
   SERVO_Hz = EEPROM.readInt(adr_eprom_SERVO_Hz);
   POWER_SCALE = EEPROM.readInt(adr_eprom_POWER_SCALE);
+  SBUS_INVERTED = EEPROM.readInt(adr_eprom_SBUS_INVERTED);
+  ENCODER_INVERTED = EEPROM.readInt(adr_eprom_ENCODER_INVERTED);
+  LANGUAGE = EEPROM.readInt(adr_eprom_LANGUAGE);
   Serial.println("EEPROM gelesen.");
 }
 
-void EEprom_Save() {
+void EEprom_Save()
+{
   EEPROM.writeInt(adr_eprom_WIFI_ON, WIFI_ON);
   EEPROM.writeInt(adr_eprom_SERVO_STEPS, SERVO_STEPS);
   EEPROM.writeInt(adr_eprom_SERVO_MAX, SERVO_MAX);
@@ -1292,6 +1564,9 @@ void EEprom_Save() {
   EEPROM.writeInt(adr_eprom_SERVO_Mitte, SERVO_Mitte);
   EEPROM.writeInt(adr_eprom_SERVO_Hz, SERVO_Hz);
   EEPROM.writeInt(adr_eprom_POWER_SCALE, POWER_SCALE);
+  EEPROM.writeInt(adr_eprom_SBUS_INVERTED, SBUS_INVERTED);
+  EEPROM.writeInt(adr_eprom_ENCODER_INVERTED, ENCODER_INVERTED);
+  EEPROM.writeInt(adr_eprom_LANGUAGE, LANGUAGE);
   EEPROM.commit();
   Serial.println("EEPROM gespeichert.");
 }
@@ -1302,26 +1577,33 @@ void EEprom_Save() {
 // =======================================================================================================
 //
 
-void webInterface() {
+void webInterface()
+{
 
-  if (WIFI_ON == 1) {                        //Wifi Ein
-    WiFiClient client = server.available();  // Listen for incoming clients
+  if (WIFI_ON == 1)
+  {                                         // Wifi Ein
+    WiFiClient client = server.available(); // Listen for incoming clients
 
-    if (client) {  // If a new client connects,
+    if (client)
+    { // If a new client connects,
       currentTime = millis();
       previousTime = currentTime;
-      Serial.println("New Client.");                                             // print a message out in the serial port
-      String currentLine = "";                                                   // make a String to hold incoming data from the client
-      while (client.connected() && currentTime - previousTime <= timeoutTime) {  // loop while the client's connected
+      Serial.println("New Client."); // print a message out in the serial port
+      String currentLine = "";       // make a String to hold incoming data from the client
+      while (client.connected() && currentTime - previousTime <= timeoutTime)
+      { // loop while the client's connected
         currentTime = millis();
-        if (client.available()) {  // if there's bytes to read from the client,
-          char c = client.read();  // read a byte, then
-          Serial.write(c);         // print it out the serial monitor
+        if (client.available())
+        {                         // if there's bytes to read from the client,
+          char c = client.read(); // read a byte, then
+          Serial.write(c);        // print it out the serial monitor
           header += c;
-          if (c == '\n') {  // if the byte is a newline character
+          if (c == '\n')
+          { // if the byte is a newline character
             // if the current line is blank, you got two newline characters in a row.
             // that's the end of the client HTTP request, so send a response:
-            if (currentLine.length() == 0) {
+            if (currentLine.length() == 0)
+            {
               // HTTP-Header fangen immer mit einem Response-Code an (z.B. HTTP/1.1 200 OK)
               // gefolgt vom Content-Type damit der Client weiss was folgt, gefolgt von einer Leerzeile:
               client.println("HTTP/1.1 200 OK");
@@ -1331,125 +1613,154 @@ void webInterface() {
 
               // Webseiten Eingaben abfragen
 
-              //GET /?value=180& HTTP/1.1
-              if (header.indexOf("GET /?Pos0=") >= 0) {
+              // GET /?value=180& HTTP/1.1
+              if (header.indexOf("GET /?Pos0=") >= 0)
+              {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[0] = (valueString.toInt());
               }
-              if (header.indexOf("GET /?Pos1=") >= 0) {
+              if (header.indexOf("GET /?Pos1=") >= 0)
+              {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[1] = (valueString.toInt());
               }
-              if (header.indexOf("GET /?Pos2=") >= 0) {
+              if (header.indexOf("GET /?Pos2=") >= 0)
+              {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[2] = (valueString.toInt());
               }
-              if (header.indexOf("GET /?Pos3=") >= 0) {
+              if (header.indexOf("GET /?Pos3=") >= 0)
+              {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[3] = (valueString.toInt());
               }
-              if (header.indexOf("GET /?Pos4=") >= 0) {
+              if (header.indexOf("GET /?Pos4=") >= 0)
+              {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[4] = (valueString.toInt());
               }
-              if (header.indexOf("GET /?Set1=") >= 0) {
+              if (header.indexOf("GET /?Set1=") >= 0)
+              {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 SERVO_STEPS = (valueString.toInt());
               }
-              if (header.indexOf("GET /?Set2=") >= 0) {
+              if (header.indexOf("GET /?Set2=") >= 0)
+              {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 SERVO_MAX = (valueString.toInt());
               }
-              if (header.indexOf("GET /?Set3=") >= 0) {
+              if (header.indexOf("GET /?Set3=") >= 0)
+              {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 SERVO_MIN = (valueString.toInt());
               }
-              if (header.indexOf("GET /?Set4=") >= 0) {
+              if (header.indexOf("GET /?Set4=") >= 0)
+              {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
-                if (valueString.toInt() > SERVO_MIN) {  //Nur übernehmen wenn > MIN
+                if (valueString.toInt() > SERVO_MIN)
+                { // Nur übernehmen wenn > MIN
                   SERVO_Mitte = (valueString.toInt());
                 }
               }
-              if (header.indexOf("GET /?Set5=") >= 0) {
+              if (header.indexOf("GET /?Set5=") >= 0)
+              {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 SERVO_Hz = (valueString.toInt());
               }
-              if (header.indexOf("GET /?Speed=") >= 0) {
+              if (header.indexOf("GET /?Speed=") >= 0)
+              {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 TimeAuto = (valueString.toInt());
               }
-              if (header.indexOf("GET /mitte1/on") >= 0) {
-                servo_pos[0] = SERVO_Mitte;  //Mitte
+              if (header.indexOf("GET /mitte1/on") >= 0)
+              {
+                servo_pos[0] = SERVO_Mitte; // Mitte
               }
-              if (header.indexOf("GET /mitte2/on") >= 0) {
-                servo_pos[1] = SERVO_Mitte;  //Mitte
+              if (header.indexOf("GET /mitte2/on") >= 0)
+              {
+                servo_pos[1] = SERVO_Mitte; // Mitte
               }
-              if (header.indexOf("GET /mitte3/on") >= 0) {
-                servo_pos[2] = SERVO_Mitte;  //Mitte
+              if (header.indexOf("GET /mitte3/on") >= 0)
+              {
+                servo_pos[2] = SERVO_Mitte; // Mitte
               }
-              if (header.indexOf("GET /mitte4/on") >= 0) {
-                servo_pos[3] = SERVO_Mitte;  //Mitte
+              if (header.indexOf("GET /mitte4/on") >= 0)
+              {
+                servo_pos[3] = SERVO_Mitte; // Mitte
               }
-              if (header.indexOf("GET /mitte5/on") >= 0) {
-                servo_pos[4] = SERVO_Mitte;  //Mitte
+              if (header.indexOf("GET /mitte5/on") >= 0)
+              {
+                servo_pos[4] = SERVO_Mitte; // Mitte
               }
-              if (header.indexOf("GET /back/on") >= 0) {
+              if (header.indexOf("GET /back/on") >= 0)
+              {
                 Menu = Servotester_Auswahl;
               }
-              if (header.indexOf("GET /10/on") >= 0) {
+              if (header.indexOf("GET /10/on") >= 0)
+              {
                 Menu = Servotester_Menu;
               }
-              if (header.indexOf("GET /20/on") >= 0) {
+              if (header.indexOf("GET /20/on") >= 0)
+              {
                 Menu = Automatik_Modus_Menu;
               }
-              if (header.indexOf("GET /30/on") >= 0) {
+              if (header.indexOf("GET /30/on") >= 0)
+              {
                 Menu = Impuls_lesen_Menu;
               }
-              if (header.indexOf("GET /40/on") >= 0) {
+              if (header.indexOf("GET /40/on") >= 0)
+              {
                 Menu = Multiswitch_lesen_Menu;
               }
-              if (header.indexOf("GET /50/on") >= 0) {
+              if (header.indexOf("GET /50/on") >= 0)
+              {
                 Menu = SBUS_lesen_Menu;
               }
-              if (header.indexOf("GET /60/on") >= 0) {
+              if (header.indexOf("GET /60/on") >= 0)
+              {
                 Menu = Einstellung_Menu;
               }
-              if (header.indexOf("GET /save/on") >= 0) {
+              if (header.indexOf("GET /save/on") >= 0)
+              {
                 EEprom_Save();
               }
-              if (header.indexOf("GET /pause/on") >= 0) {
-                if (Auto_Pause) {
+              if (header.indexOf("GET /pause/on") >= 0)
+              {
+                if (Auto_Pause)
+                {
                   Auto_Pause = false;
-                } else {
+                }
+                else
+                {
                   Auto_Pause = true;
                 }
               }
 
-              //HTML Seite angezeigen:
+              // HTML Seite angezeigen:
               client.println("<!DOCTYPE html><html>");
-              //client.println("<meta http-equiv='refresh' content='5'>");
+              // client.println("<meta http-equiv='refresh' content='5'>");
               client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
               client.println("<link rel=\"icon\" href=\"data:,\">");
               // CSS zum Stylen der Ein/Aus-Schaltflächen
@@ -1466,182 +1777,182 @@ void webInterface() {
               // Webseiten-Überschrift
               client.println("</head><body><h1>Servotester Deluxe</h1>");
 
-              switch (Menu) {
-                case Servotester_Menu:
-                  client.println("<h2>Servotester</h2>");
-                  //Servo1
-                  valueString = String(servo_pos[0], DEC);
+              switch (Menu)
+              {
+              case Servotester_Menu:
+                client.println("<h2>Servotester</h2>");
+                // Servo1
+                valueString = String(servo_pos[0], DEC);
 
-                  client.println("<p><h3>Servo 1 Mikrosekunden : <span id=\"textServo1SliderValue\">" + valueString + "</span>");
-                  client.println("<a href=\"/mitte1/on\"><button class=\"button button1\">Mitte</button></a></p>");
+                client.println("<p><h3>Servo 1 Mikrosekunden : <span id=\"textServo1SliderValue\">" + valueString + "</span>");
+                client.println("<a href=\"/mitte1/on\"><button class=\"button button1\">Mitte</button></a></p>");
 
-                  client.println("<input type=\"range\" min=\"" + String(SERVO_MIN, DEC) + "\" max=\"" + String(SERVO_MAX, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo1Slider\" onchange=\"Servo1Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<input type=\"range\" min=\"" + String(SERVO_MIN, DEC) + "\" max=\"" + String(SERVO_MAX, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo1Slider\" onchange=\"Servo1Speed(this.value)\" value=\"" + valueString + "\" /></p>");
 
-                  client.println("<script> function Servo1Speed(pos) { ");
-                  client.println("var sliderValue = document.getElementById(\"Servo1Slider\").value;");
-                  client.println("document.getElementById(\"textServo1SliderValue\").innerHTML = sliderValue;");
-                  client.println("var xhr = new XMLHttpRequest();");
-                  client.println("xhr.open('GET', \"/?Pos0=\" + pos + \"&\", true);");
-                  client.println("xhr.send(); } </script>");
-                  //Servo2
-                  valueString = String(servo_pos[1], DEC);
+                client.println("<script> function Servo1Speed(pos) { ");
+                client.println("var sliderValue = document.getElementById(\"Servo1Slider\").value;");
+                client.println("document.getElementById(\"textServo1SliderValue\").innerHTML = sliderValue;");
+                client.println("var xhr = new XMLHttpRequest();");
+                client.println("xhr.open('GET', \"/?Pos0=\" + pos + \"&\", true);");
+                client.println("xhr.send(); } </script>");
+                // Servo2
+                valueString = String(servo_pos[1], DEC);
 
-                  client.println("<p><h3>Servo 2 Mikrosekunden : <span id=\"textServo2SliderValue\">" + valueString + "</span>");
-                  client.println("<a href=\"/mitte2/on\"><button class=\"button button1\">Mitte</button></a></p>");
+                client.println("<p><h3>Servo 2 Mikrosekunden : <span id=\"textServo2SliderValue\">" + valueString + "</span>");
+                client.println("<a href=\"/mitte2/on\"><button class=\"button button1\">Mitte</button></a></p>");
 
-                  client.println("<input type=\"range\" min=\"" + String(SERVO_MIN, DEC) + "\" max=\"" + String(SERVO_MAX, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo2Slider\" onchange=\"Servo2Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<input type=\"range\" min=\"" + String(SERVO_MIN, DEC) + "\" max=\"" + String(SERVO_MAX, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo2Slider\" onchange=\"Servo2Speed(this.value)\" value=\"" + valueString + "\" /></p>");
 
-                  client.println("<script> function Servo2Speed(pos) { ");
-                  client.println("var sliderValue = document.getElementById(\"Servo2Slider\").value;");
-                  client.println("document.getElementById(\"textServo2SliderValue\").innerHTML = sliderValue;");
-                  client.println("var xhr = new XMLHttpRequest();");
-                  client.println("xhr.open('GET', \"/?Pos1=\" + pos + \"&\", true);");
-                  client.println("xhr.send(); } </script>");
-                  //Servo3
-                  valueString = String(servo_pos[2], DEC);
+                client.println("<script> function Servo2Speed(pos) { ");
+                client.println("var sliderValue = document.getElementById(\"Servo2Slider\").value;");
+                client.println("document.getElementById(\"textServo2SliderValue\").innerHTML = sliderValue;");
+                client.println("var xhr = new XMLHttpRequest();");
+                client.println("xhr.open('GET', \"/?Pos1=\" + pos + \"&\", true);");
+                client.println("xhr.send(); } </script>");
+                // Servo3
+                valueString = String(servo_pos[2], DEC);
 
-                  client.println("<p><h3>Servo 3 Mikrosekunden : <span id=\"textServo3SliderValue\">" + valueString + "</span>");
-                  client.println("<a href=\"/mitte3/on\"><button class=\"button button1\">Mitte</button></a></p>");
+                client.println("<p><h3>Servo 3 Mikrosekunden : <span id=\"textServo3SliderValue\">" + valueString + "</span>");
+                client.println("<a href=\"/mitte3/on\"><button class=\"button button1\">Mitte</button></a></p>");
 
-                  client.println("<input type=\"range\" min=\"" + String(SERVO_MIN, DEC) + "\" max=\"" + String(SERVO_MAX, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo3Slider\" onchange=\"Servo3Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<input type=\"range\" min=\"" + String(SERVO_MIN, DEC) + "\" max=\"" + String(SERVO_MAX, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo3Slider\" onchange=\"Servo3Speed(this.value)\" value=\"" + valueString + "\" /></p>");
 
-                  client.println("<script> function Servo3Speed(pos) { ");
-                  client.println("var sliderValue = document.getElementById(\"Servo3Slider\").value;");
-                  client.println("document.getElementById(\"textServo3SliderValue\").innerHTML = sliderValue;");
-                  client.println("var xhr = new XMLHttpRequest();");
-                  client.println("xhr.open('GET', \"/?Pos2=\" + pos + \"&\", true);");
-                  client.println("xhr.send(); } </script>");
-                  //Servo4
-                  valueString = String(servo_pos[3], DEC);
+                client.println("<script> function Servo3Speed(pos) { ");
+                client.println("var sliderValue = document.getElementById(\"Servo3Slider\").value;");
+                client.println("document.getElementById(\"textServo3SliderValue\").innerHTML = sliderValue;");
+                client.println("var xhr = new XMLHttpRequest();");
+                client.println("xhr.open('GET', \"/?Pos2=\" + pos + \"&\", true);");
+                client.println("xhr.send(); } </script>");
+                // Servo4
+                valueString = String(servo_pos[3], DEC);
 
-                  client.println("<p><h3>Servo 4 Mikrosekunden : <span id=\"textServo4SliderValue\">" + valueString + "</span>");
-                  client.println("<a href=\"/mitte4/on\"><button class=\"button button1\">Mitte</button></a></p>");
+                client.println("<p><h3>Servo 4 Mikrosekunden : <span id=\"textServo4SliderValue\">" + valueString + "</span>");
+                client.println("<a href=\"/mitte4/on\"><button class=\"button button1\">Mitte</button></a></p>");
 
-                  client.println("<input type=\"range\" min=\"" + String(SERVO_MIN, DEC) + "\" max=\"" + String(SERVO_MAX, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo4Slider\" onchange=\"Servo4Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<input type=\"range\" min=\"" + String(SERVO_MIN, DEC) + "\" max=\"" + String(SERVO_MAX, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo4Slider\" onchange=\"Servo4Speed(this.value)\" value=\"" + valueString + "\" /></p>");
 
-                  client.println("<script> function Servo4Speed(pos) { ");
-                  client.println("var sliderValue = document.getElementById(\"Servo4Slider\").value;");
-                  client.println("document.getElementById(\"textServo4SliderValue\").innerHTML = sliderValue;");
-                  client.println("var xhr = new XMLHttpRequest();");
-                  client.println("xhr.open('GET', \"/?Pos3=\" + pos + \"&\", true);");
-                  client.println("xhr.send(); } </script>");
-                  //Servo5
-                  valueString = String(servo_pos[4], DEC);
+                client.println("<script> function Servo4Speed(pos) { ");
+                client.println("var sliderValue = document.getElementById(\"Servo4Slider\").value;");
+                client.println("document.getElementById(\"textServo4SliderValue\").innerHTML = sliderValue;");
+                client.println("var xhr = new XMLHttpRequest();");
+                client.println("xhr.open('GET', \"/?Pos3=\" + pos + \"&\", true);");
+                client.println("xhr.send(); } </script>");
+                // Servo5
+                valueString = String(servo_pos[4], DEC);
 
-                  client.println("<p><h3>Servo 5 Mikrosekunden : <span id=\"textServo5SliderValue\">" + valueString + "</span>");
-                  client.println("<a href=\"/mitte5/on\"><button class=\"button button1\">Mitte</button></a></p>");
+                client.println("<p><h3>Servo 5 Mikrosekunden : <span id=\"textServo5SliderValue\">" + valueString + "</span>");
+                client.println("<a href=\"/mitte5/on\"><button class=\"button button1\">Mitte</button></a></p>");
 
-                  client.println("<input type=\"range\" min=\"" + String(SERVO_MIN, DEC) + "\" max=\"" + String(SERVO_MAX, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo5Slider\" onchange=\"Servo5Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<input type=\"range\" min=\"" + String(SERVO_MIN, DEC) + "\" max=\"" + String(SERVO_MAX, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo5Slider\" onchange=\"Servo5Speed(this.value)\" value=\"" + valueString + "\" /></p>");
 
-                  client.println("<script> function Servo5Speed(pos) { ");
-                  client.println("var sliderValue = document.getElementById(\"Servo5Slider\").value;");
-                  client.println("document.getElementById(\"textServo5SliderValue\").innerHTML = sliderValue;");
-                  client.println("var xhr = new XMLHttpRequest();");
-                  client.println("xhr.open('GET', \"/?Pos4=\" + pos + \"&\", true);");
-                  client.println("xhr.send(); } </script>");
-                  //Button erstellen und link zum aufrufen erstellen
+                client.println("<script> function Servo5Speed(pos) { ");
+                client.println("var sliderValue = document.getElementById(\"Servo5Slider\").value;");
+                client.println("document.getElementById(\"textServo5SliderValue\").innerHTML = sliderValue;");
+                client.println("var xhr = new XMLHttpRequest();");
+                client.println("xhr.open('GET', \"/?Pos4=\" + pos + \"&\", true);");
+                client.println("xhr.send(); } </script>");
+                // Button erstellen und link zum aufrufen erstellen
 
-                  client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
+                client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
 
-                  break;
+                break;
 
-                case Automatik_Modus_Menu:
-                  client.println("<h2>Automatik Modus</h2>");
+              case Automatik_Modus_Menu:
+                client.println("<h2>Automatik Modus</h2>");
 
-                  valueString = String(TimeAuto, DEC);
+                valueString = String(TimeAuto, DEC);
 
-                  client.println("<p><h3>Servo Geschwindigkeit : <span id=\"textServoSpeedValue\">" + valueString + "</span>");
+                client.println("<p><h3>Servo Geschwindigkeit : <span id=\"textServoSpeedValue\">" + valueString + "</span>");
 
-                  client.println("<input type=\"range\" min=\"5\" max=\"100\" step=\"5\" class=\"slider\" id=\"ServoSpeedAuto\" onchange=\"ServoSpeed(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<input type=\"range\" min=\"5\" max=\"100\" step=\"5\" class=\"slider\" id=\"ServoSpeedAuto\" onchange=\"ServoSpeed(this.value)\" value=\"" + valueString + "\" /></p>");
 
-                  client.println("<script> function ServoSpeed(pos) { ");
-                  client.println("var sliderValue = document.getElementById(\"ServoSpeedAuto\").value;");
-                  client.println("document.getElementById(\"textServoSpeedValue\").innerHTML = sliderValue;");
-                  client.println("var xhr = new XMLHttpRequest();");
-                  client.println("xhr.open('GET', \"/?Speed=\" + pos + \"&\", true);");
-                  client.println("xhr.send(); } </script>");
+                client.println("<script> function ServoSpeed(pos) { ");
+                client.println("var sliderValue = document.getElementById(\"ServoSpeedAuto\").value;");
+                client.println("document.getElementById(\"textServoSpeedValue\").innerHTML = sliderValue;");
+                client.println("var xhr = new XMLHttpRequest();");
+                client.println("xhr.open('GET', \"/?Speed=\" + pos + \"&\", true);");
+                client.println("xhr.send(); } </script>");
 
-                  client.println("<p><a href=\"/pause/on\"><button class=\"button button1\">Pause</button></a></p>");
-                  client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
-                  break;
+                client.println("<p><a href=\"/pause/on\"><button class=\"button button1\">Pause</button></a></p>");
+                client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
+                break;
 
-                case Einstellung_Menu:
-                  client.println("<h2>Einstellung</h2>");
+              case Einstellung_Menu:
+                client.println("<h2>Einstellung</h2>");
 
-                  valueString = String(SERVO_STEPS, DEC);
+                valueString = String(SERVO_STEPS, DEC);
 
-                  client.println("<p><h3>Servo Steps : <span id=\"textSetting1Value\">" + valueString + "</span>");
-                  client.println("<input type=\"text\" id=\"Setting1Input\" class=\"textbox\" oninput=\"Setting1change(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<p><h3>Servo Steps : <span id=\"textSetting1Value\">" + valueString + "</span>");
+                client.println("<input type=\"text\" id=\"Setting1Input\" class=\"textbox\" oninput=\"Setting1change(this.value)\" value=\"" + valueString + "\" /></p>");
 
-                  client.println("<script> function Setting1change(pos) { ");
-                  client.println("var sliderValue = document.getElementById(\"Setting1Input\").value;");
-                  client.println("document.getElementById(\"textSetting1Value\").innerHTML = sliderValue;");
-                  client.println("var xhr = new XMLHttpRequest();");
-                  client.println("xhr.open('GET', \"/?Set1=\" + pos + \"&\", true);");
-                  client.println("xhr.send(); } </script>");
+                client.println("<script> function Setting1change(pos) { ");
+                client.println("var sliderValue = document.getElementById(\"Setting1Input\").value;");
+                client.println("document.getElementById(\"textSetting1Value\").innerHTML = sliderValue;");
+                client.println("var xhr = new XMLHttpRequest();");
+                client.println("xhr.open('GET', \"/?Set1=\" + pos + \"&\", true);");
+                client.println("xhr.send(); } </script>");
 
-                  valueString = String(SERVO_MAX, DEC);
+                valueString = String(SERVO_MAX, DEC);
 
-                  client.println("<p><h3>Servo MAX : <span id=\"textSetting2Value\">" + valueString + "</span>");
-                  client.println("<input type=\"text\" id=\"Setting2Input\" class=\"textbox\" oninput=\"Setting2change(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<p><h3>Servo MAX : <span id=\"textSetting2Value\">" + valueString + "</span>");
+                client.println("<input type=\"text\" id=\"Setting2Input\" class=\"textbox\" oninput=\"Setting2change(this.value)\" value=\"" + valueString + "\" /></p>");
 
-                  client.println("<script> function Setting2change(pos) { ");
-                  client.println("var sliderValue = document.getElementById(\"Setting2Input\").value;");
-                  client.println("document.getElementById(\"textSetting2Value\").innerHTML = sliderValue;");
-                  client.println("var xhr = new XMLHttpRequest();");
-                  client.println("xhr.open('GET', \"/?Set2=\" + pos + \"&\", true);");
-                  client.println("xhr.send(); } </script>");
+                client.println("<script> function Setting2change(pos) { ");
+                client.println("var sliderValue = document.getElementById(\"Setting2Input\").value;");
+                client.println("document.getElementById(\"textSetting2Value\").innerHTML = sliderValue;");
+                client.println("var xhr = new XMLHttpRequest();");
+                client.println("xhr.open('GET', \"/?Set2=\" + pos + \"&\", true);");
+                client.println("xhr.send(); } </script>");
 
-                  valueString = String(SERVO_MIN, DEC);
+                valueString = String(SERVO_MIN, DEC);
 
-                  client.println("<p><h3>Servo MIN : <span id=\"textSetting3Value\">" + valueString + "</span>");
-                  client.println("<input type=\"text\" id=\"Setting3Input\" class=\"textbox\" oninput=\"Setting3change(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<p><h3>Servo MIN : <span id=\"textSetting3Value\">" + valueString + "</span>");
+                client.println("<input type=\"text\" id=\"Setting3Input\" class=\"textbox\" oninput=\"Setting3change(this.value)\" value=\"" + valueString + "\" /></p>");
 
-                  client.println("<script> function Setting3change(pos) { ");
-                  client.println("var sliderValue = document.getElementById(\"Setting3Input\").value;");
-                  client.println("document.getElementById(\"textSetting3Value\").innerHTML = sliderValue;");
-                  client.println("var xhr = new XMLHttpRequest();");
-                  client.println("xhr.open('GET', \"/?Set3=\" + pos + \"&\", true);");
-                  client.println("xhr.send(); } </script>");
+                client.println("<script> function Setting3change(pos) { ");
+                client.println("var sliderValue = document.getElementById(\"Setting3Input\").value;");
+                client.println("document.getElementById(\"textSetting3Value\").innerHTML = sliderValue;");
+                client.println("var xhr = new XMLHttpRequest();");
+                client.println("xhr.open('GET', \"/?Set3=\" + pos + \"&\", true);");
+                client.println("xhr.send(); } </script>");
 
-                  valueString = String(SERVO_Mitte, DEC);
+                valueString = String(SERVO_Mitte, DEC);
 
-                  client.println("<p><h3>Servo Mitte : <span id=\"textSetting4Value\">" + valueString + "</span>");
-                  client.println("<input type=\"text\" id=\"Setting4Input\" class=\"textbox\" oninput=\"Setting4change(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<p><h3>Servo Mitte : <span id=\"textSetting4Value\">" + valueString + "</span>");
+                client.println("<input type=\"text\" id=\"Setting4Input\" class=\"textbox\" oninput=\"Setting4change(this.value)\" value=\"" + valueString + "\" /></p>");
 
-                  client.println("<script> function Setting4change(pos) { ");
-                  client.println("var sliderValue = document.getElementById(\"Setting4Input\").value;");
-                  client.println("document.getElementById(\"textSetting4Value\").innerHTML = sliderValue;");
-                  client.println("var xhr = new XMLHttpRequest();");
-                  client.println("xhr.open('GET', \"/?Set4=\" + pos + \"&\", true);");
-                  client.println("xhr.send(); } </script>");
+                client.println("<script> function Setting4change(pos) { ");
+                client.println("var sliderValue = document.getElementById(\"Setting4Input\").value;");
+                client.println("document.getElementById(\"textSetting4Value\").innerHTML = sliderValue;");
+                client.println("var xhr = new XMLHttpRequest();");
+                client.println("xhr.open('GET', \"/?Set4=\" + pos + \"&\", true);");
+                client.println("xhr.send(); } </script>");
 
-                  valueString = String(SERVO_Hz, DEC);
+                valueString = String(SERVO_Hz, DEC);
 
-                  client.println("<p><h3>Servo Hz : <span id=\"textSetting5Value\">" + valueString + "</span>");
-                  client.println("<input type=\"text\" id=\"Setting5Input\" class=\"textbox\" oninput=\"Setting5change(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<p><h3>Servo Hz : <span id=\"textSetting5Value\">" + valueString + "</span>");
+                client.println("<input type=\"text\" id=\"Setting5Input\" class=\"textbox\" oninput=\"Setting5change(this.value)\" value=\"" + valueString + "\" /></p>");
 
-                  client.println("<script> function Setting5change(pos) { ");
-                  client.println("var sliderValue = document.getElementById(\"Setting5Input\").value;");
-                  client.println("document.getElementById(\"textSetting4Value\").innerHTML = sliderValue;");
-                  client.println("var xhr = new XMLHttpRequest();");
-                  client.println("xhr.open('GET', \"/?Set5=\" + pos + \"&\", true);");
-                  client.println("xhr.send(); } </script>");
+                client.println("<script> function Setting5change(pos) { ");
+                client.println("var sliderValue = document.getElementById(\"Setting5Input\").value;");
+                client.println("document.getElementById(\"textSetting4Value\").innerHTML = sliderValue;");
+                client.println("var xhr = new XMLHttpRequest();");
+                client.println("xhr.open('GET', \"/?Set5=\" + pos + \"&\", true);");
+                client.println("xhr.send(); } </script>");
 
+                client.println("<p><a href=\"/save/on\"><button class=\"button button1\">Speichern</button></a></p>");
+                client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
+                break;
 
-                  client.println("<p><a href=\"/save/on\"><button class=\"button button1\">Speichern</button></a></p>");
-                  client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
-                  break;
-
-                default:
-                  client.println("<h2>Menu</h2>");
-                  client.println("<p><a href=\"/10/on\"><button class=\"button button1\">Servotester</button></a></p>");
-                  client.println("<p><a href=\"/20/on\"><button class=\"button button1\">Automatik Modus</button></a></p>");
-                  client.println("<p><a href=\"/30/on\"><button class=\"button button1\">Impuls lesen</button></a></p>");
-                  client.println("<p><a href=\"/40/on\"><button class=\"button button1\">Multiswitch lesen</button></a></p>");
-                  client.println("<p><a href=\"/50/on\"><button class=\"button button1\">SBUS lesen</button></a></p>");
-                  client.println("<p><a href=\"/60/on\"><button class=\"button button1\">Einstellung</button></a></p>");
-                  break;  // Wird nicht benötigt, wenn Statement(s) vorhanden sind
+              default:
+                client.println("<h2>Menu</h2>");
+                client.println("<p><a href=\"/10/on\"><button class=\"button button1\">Servotester</button></a></p>");
+                client.println("<p><a href=\"/20/on\"><button class=\"button button1\">Automatik Modus</button></a></p>");
+                client.println("<p><a href=\"/30/on\"><button class=\"button button1\">Impuls lesen</button></a></p>");
+                client.println("<p><a href=\"/40/on\"><button class=\"button button1\">Multiswitch lesen</button></a></p>");
+                client.println("<p><a href=\"/50/on\"><button class=\"button button1\">SBUS lesen</button></a></p>");
+                client.println("<p><a href=\"/60/on\"><button class=\"button button1\">Einstellung</button></a></p>");
+                break; // Wird nicht benötigt, wenn Statement(s) vorhanden sind
               }
 
               client.println("</body></html>");
@@ -1650,11 +1961,15 @@ void webInterface() {
               client.println();
               // Break out of the while loop
               break;
-            } else {  // if you got a newline, then clear currentLine
+            }
+            else
+            { // if you got a newline, then clear currentLine
               currentLine = "";
             }
-          } else if (c != '\r') {  // if you got anything else but a carriage return character,
-            currentLine += c;      // add it to the end of the currentLine
+          }
+          else if (c != '\r')
+          {                   // if you got anything else but a carriage return character,
+            currentLine += c; // add it to the end of the currentLine
           }
         }
       }
@@ -1674,7 +1989,8 @@ void webInterface() {
 // =======================================================================================================
 //
 
-void loop() {
+void loop()
+{
 
   ButtonRead();
   MenuUpdate();

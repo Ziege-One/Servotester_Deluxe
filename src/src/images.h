@@ -1,3 +1,5 @@
+#include <Arduino.h>
+// der RC Modellbauer Logo
 #define Logo_width 128
 #define Logo_height 64
 const uint8_t Logo_bits[] PROGMEM = {
