@@ -1,6 +1,10 @@
 /*
    Servotester Deluxe
-   Ziege-One (Der RC-Modelbauer) Modified by TheDIYGuy999
+   Ziege-One (Der RC-Modelbauer)
+   https://www.youtube.com/watch?v=YNLPCft2qjg&list=PLS6SFYu711FpxCNO_j4_ig4ey0NwVQPcW
+   
+   Modified by TheDIYGuy999
+   https://www.youtube.com/channel/UCqWO3PNCSjHmYiACDMLr23w
 
    It is recommended to use VS Code instead of Arduino IDE, because board and library management is way easier this way!
    Requirements:
@@ -23,7 +27,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.7.1"; // Software revision.
+char codeVersion[] = "0.8.0"; // Software revision.
 
 //
 // =======================================================================================================
@@ -55,13 +59,15 @@ ESP32Encoder                                  0.10.1
 SBUS                                          internal, no library required anymore
 IBusBM                                        1.1.4
 ESP8266 and ESP OLED driver SSD1306 displays  4.3.0
+ESP32AnalogRead                               0.2.1
  */
 
-#include <ESP32Servo.h>   // https://github.com/madhephaestus/ESP32Servo/archive/refs/tags/0.12.1.tar.gz
-#include <ESP32Encoder.h> // https://github.com/madhephaestus/ESP32Encoder/archive/refs/tags/0.10.1.tar.gz
-#include <IBusBM.h>       // https://github.com/bmellink/IBusBM/archive/refs/tags/v1.1.5.tar.gz
-#include <SH1106Wire.h>   //1.3"
-#include "SSD1306Wire.h"  //0.96" https://github.com/ThingPulse/esp8266-oled-ssd1306/archive/refs/tags/4.3.0.tar.gz
+#include <ESP32Servo.h>      // https://github.com/madhephaestus/ESP32Servo/archive/refs/tags/0.12.1.tar.gz
+#include <ESP32Encoder.h>    // https://github.com/madhephaestus/ESP32Encoder/archive/refs/tags/0.10.1.tar.gz
+#include <IBusBM.h>          // https://github.com/bmellink/IBusBM/archive/refs/tags/v1.1.5.tar.gz
+#include <SH1106Wire.h>      //1.3"
+#include <SSD1306Wire.h>     //0.96" https://github.com/ThingPulse/esp8266-oled-ssd1306/archive/refs/tags/4.3.0.tar.gz
+#include <ESP32AnalogRead.h> // https://github.com/madhephaestus/ESP32AnalogRead <<------- required for calibrated battery voltage measurement
 
 // No need to install these, they come with the ESP32 board definition
 #include <WiFi.h>
@@ -78,7 +84,7 @@ ESP8266 and ESP OLED driver SSD1306 displays  4.3.0
 #include "src/sbus.h"      // For SBUS interface
 #include "src/languages.h" // Menu language ressources
 
-// EEprom
+// EEPROM
 #define EEPROM_SIZE 40
 
 #define adr_eprom_WIFI_ON 0           // WIFI 1 = Ein 0 = Aus
@@ -100,16 +106,16 @@ int SERVO_MIN;
 int SERVO_Mitte;
 int SERVO_Hz;
 int POWER_SCALE;
-int SBUS_INVERTED = 1; // 1 = standard (non inverted) SBUS signal
+int SBUS_INVERTED;
 int ENCODER_INVERTED;
 int LANGUAGE;
 
-// Encoder + Taster
+// Encoder + button
 ESP32Encoder encoder;
 
-int button_PIN = 15;          // Hardware Pin Button
-int encoder_Pin1 = 16;        // Hardware Pin1 Encoder
-int encoder_Pin2 = 17;        // Hardware Pin2 Encoder
+#define BUTTON_PIN 15         // Hardware Pin Button
+#define ENCODER_PIN_1 16      // Hardware Pin1 Encoder
+#define ENCODER_PIN_2 17      // Hardware Pin2 Encoder
 long prev = 0;                // Zeitspeicher für Taster
 long prev2 = 0;               // Zeitspeicher für Taster
 long previousDebouncTime = 0; // Speicher Entprellzeit für Taster
@@ -132,10 +138,6 @@ int servocount = 0;                                        // Zähler für Servo
 #define COMMAND_TX -1 // -1 is just a dummy
 
 // SBUS
-// bfs::SbusRx sbus_rx(&Serial2, servopin[0], servopin[0] + 1, true);  // Sbus auf Serial2
-
-// bfs::SbusData sbus_data;
-
 bfs::SbusRx sBus(&Serial2);
 std::array<int16_t, bfs::SbusRx::NUM_CH()> SBUSchannels;
 
@@ -143,11 +145,11 @@ std::array<int16_t, bfs::SbusRx::NUM_CH()> SBUSchannels;
 IBusBM IBus; // IBus object
 
 // Externe Spannungsversorgung
-int Power_PIN = 36; // Hardware Pin Externe Spannung in
-bool Power_EN;      // Akku vorhanden
-int Power_Zel;      // Akkuzellen
-float Power_V;      // Akkuspannung in V
-float Power_V_per;  // Akkuspannung in Prozent
+#define BATTERY_DETECT_PIN 36  // Hardware Pin Externe Spannung in
+bool batteryDetected;          // Akku vorhanden
+int numberOfBatteryCells;      // Akkuzellen
+float batteryVoltage;          // Akkuspannung in V
+float batteryChargePercentage; // Akkuspannung in Prozent
 
 // Menüstruktur
 /*
@@ -196,6 +198,9 @@ int Menu = Servotester_Auswahl; // Aktives Menu
 bool SetupMenu = false;         // Zustand Setupmenu
 int Einstellung = 0;            // Aktives Einstellungsmenu
 bool Edit = false;              // Einstellungen ausgewählt
+
+// Battery voltage
+ESP32AnalogRead battery;
 
 // OLED
 #ifdef OLED1306
@@ -275,40 +280,21 @@ void setup()
 
   // EEPROM
   EEPROM.begin(EEPROM_SIZE);
-  EEprom_Load(); // Einstellung laden
-  Serial.println(WIFI_ON);
-  Serial.println(SERVO_STEPS);
-  Serial.println(SERVO_MAX);
-  Serial.println(SERVO_MIN);
-  Serial.println(SERVO_Mitte);
-  Serial.println(POWER_SCALE);
-  Serial.println(SBUS_INVERTED);
-  Serial.println(ENCODER_INVERTED);
-  Serial.println(LANGUAGE);
 
-  if (SERVO_MIN < 500)
-  {              // EEporm init Werte
-    WIFI_ON = 1; // Wifi ein
-    SERVO_STEPS = 10;
-    SERVO_MAX = 2000;
-    SERVO_MIN = 1000;
-    SERVO_Mitte = 1500;
-    SERVO_Hz = 50;
-    POWER_SCALE = 948;
-    SBUS_INVERTED = 1; // 1 = Standard signal!
-    ENCODER_INVERTED = 0;
-    LANGUAGE = 0;
-    EEprom_Save();
-  }
+  eepromRead(); // Read EEPROM
+
+  eepromInit(); // Initialize EEPROM (store defaults, if new or erased EEPROM is detected)
 
   // Setup Encoder
   ESP32Encoder::useInternalWeakPullResistors = UP;
-  encoder.attachHalfQuad(encoder_Pin1, encoder_Pin2);
+  encoder.attachHalfQuad(ENCODER_PIN_1, ENCODER_PIN_2);
   encoder.setFilter(1023);
-  pinMode(button_PIN, INPUT_PULLUP); // Button_PIN = Eingang
+  pinMode(BUTTON_PIN, INPUT_PULLUP); // BUTTON_PIN = Eingang
 
-  pinMode(Power_PIN, INPUT); //
+  // Battery
+  battery.attach(BATTERY_DETECT_PIN);
 
+  // SBUS
   sBus.begin(COMMAND_RX, COMMAND_TX, SBUS_INVERTED, sbusBaud); // begin SBUS communication with compatible receivers
 
   // Setup OLED
@@ -406,25 +392,25 @@ void ButtonRead()
 {
 
   buttonState = 0;
-  if (!(digitalRead(button_PIN)))
+  if (!(digitalRead(BUTTON_PIN)))
   {                  // Button gedrückt 0
     delay(bouncing); // Taster entprellen
     prev = millis();
     buttonState = 1;
     while ((millis() - prev) <= Duration_long)
     {
-      if (digitalRead(button_PIN))
+      if (digitalRead(BUTTON_PIN))
       {                  // Button losgelassen 1 innerhalb Zeit
         delay(bouncing); // Taster entprellen
         buttonState = 2;
         prev2 = millis();
         while ((millis() - prev2) <= Duration_double)
         { // Doppelkick abwarten
-          if (!(digitalRead(button_PIN)))
+          if (!(digitalRead(BUTTON_PIN)))
           {                  // Button gedrückt 0 innerhalb Zeit Doppelklick
             delay(bouncing); // Taster entprellen
             buttonState = 3;
-            if (digitalRead(button_PIN))
+            if (digitalRead(BUTTON_PIN))
             { // Button losgelassen 1
               break;
             }
@@ -433,7 +419,7 @@ void ButtonRead()
         break;
       }
     }
-    while (!(digitalRead(button_PIN)))
+    while (!(digitalRead(BUTTON_PIN)))
     { // Warten bis Button nicht gedückt ist = 1
     }
     Serial.print("Buttonstate: ");
@@ -484,7 +470,6 @@ void ButtonRead()
     encoderState = 0;
     encoder.setCount(1500); // set starting count value after attaching
     encoder_last = 1500;
-    // delay(100);
   }
 }
 
@@ -513,18 +498,30 @@ void MenuUpdate()
     display.setFont(ArialMT_Plain_24);
     display.drawString(64, 0, "  Menu >");
     display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, "Servotester");
-    if (Power_EN)
+    display.drawString(64, 25, servotesterString[LANGUAGE]);
+    display.setFont(ArialMT_Plain_10);
+    if (batteryDetected)
     {
-      display.setFont(ArialMT_Plain_10);
       display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.drawString(30, 50, String(Power_V));
+      display.drawString(30, 50, String(batteryVoltage));
       display.setTextAlignment(TEXT_ALIGN_LEFT);
       display.drawString(30, 50, "V");
+
       display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.drawString(98, 50, String(Power_V_per));
+      display.drawString(64, 50, String(numberOfBatteryCells));
       display.setTextAlignment(TEXT_ALIGN_LEFT);
-      display.drawString(98, 50, "%");
+      display.drawString(64, 50, "S");
+
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(115, 50, String(batteryChargePercentage, 0));
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.drawString(115, 50, "%");
+    }
+    else
+    {
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.drawString(64, 50, noBatteryString[LANGUAGE]); // No battery
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
     }
 
     display.display();
@@ -1166,7 +1163,7 @@ void MenuUpdate()
       display.drawString(64, 45, String(POWER_SCALE));
       display.setFont(ArialMT_Plain_10);
       display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.drawString(110, 50, String(Power_V));
+      display.drawString(110, 50, String(batteryVoltage));
       display.setTextAlignment(TEXT_ALIGN_LEFT);
       display.drawString(110, 50, "V");
       break;
@@ -1194,14 +1191,7 @@ void MenuUpdate()
       break;
     case 9:
       display.drawString(64, 25, languageString[LANGUAGE]);
-      if (LANGUAGE == 0)
-      {
-        display.drawString(64, 45, "English");
-      }
-      else
-      {
-        display.drawString(64, 45, "Deutsch");
-      }
+      display.drawString(64, 45, languagesString[LANGUAGE]);
       break;
     }
     if (Edit)
@@ -1318,9 +1308,9 @@ void MenuUpdate()
       LANGUAGE = 0;
     }
 
-    if (LANGUAGE > 1)
+    if (LANGUAGE > noOfLanguages)
     { // Language nicht über 1
-      LANGUAGE = 1;
+      LANGUAGE = noOfLanguages;
     }
 
     if (ENCODER_INVERTED < 0)
@@ -1459,7 +1449,7 @@ void MenuUpdate()
       {
         Edit = false;
         // Speichern
-        EEprom_Save();
+        eepromWrite();
       }
       else
       {
@@ -1480,65 +1470,75 @@ void MenuUpdate()
 // EXTERNE SPANNUNGSVERSORGUNG
 // =======================================================================================================
 //
-void Extern_Span()
+void batteryVolts()
 {
 
   currentTimeSpan = millis();
   if ((currentTimeSpan - previousTimeSpan) > 2000)
   {
     previousTimeSpan = currentTimeSpan;
+    /*
+        // ADC & DAC calibration https://hackaday.io/project/27511-microfluidics-control-system/log/69406-adc-dac-calibration
+        int val = analogRead(BATTERY_DETECT_PIN);
+        double x = val;
+        double y = -3e-12 * pow(x, 3) - 7e-10 * pow(x, 2) + 0.0003 * x + 0.0169;
+        int MeasuredValue = std::min(3300, std::max(0, int(round(y * UINT8_MAX))));
 
-    // ADC & DAC calibration https://hackaday.io/project/27511-microfluidics-control-system/log/69406-adc-dac-calibration
-    int val = analogRead(Power_PIN);
-    double x = val;
-    double y = -3e-12 * pow(x, 3) - 7e-10 * pow(x, 2) + 0.0003 * x + 0.0169;
-    int MeasuredValue = std::min(3300, std::max(0, int(round(y * UINT8_MAX))));
+        // Serial.print("MeasuredValue: ");
+        // Serial.println(MeasuredValue);
 
-    Serial.print("MeasuredValue: ");
-    Serial.println(MeasuredValue);
+        // Wert in Volt umrechnen
+        batteryVoltage = MeasuredValue;
+        batteryVoltage = batteryVoltage / 100.0;
+    */
 
-    // Wert in Volt umrechnen
-    Power_V = MeasuredValue;
-    Power_V = Power_V / 100;
+    batteryVoltage = battery.readVoltage() * 0.825; // We want the same POWER_SCALE as before with analogRead()
 
-    float scale_value = POWER_SCALE;
-    scale_value = scale_value / 100;
+    float scale_value = POWER_SCALE / 100.0;
 
-    Power_V = Power_V * scale_value;
+    batteryVoltage = batteryVoltage * scale_value;
 
-    Serial.print("Spannung: ");
-    Serial.println(Power_V, 8);
+    Serial.print(eepromVoltageString[LANGUAGE]);
+    Serial.println(batteryVoltage, 8);
 
-    Power_EN = 1;
+    batteryDetected = 1;
 
-    if (Power_V > 21) // 6s Lipo
+    if (batteryVoltage > 21) // 6s Lipo
     {
-      Power_Zel = 6;
+      numberOfBatteryCells = 6;
     }
-    else if (Power_V > 16.8) // 5s Lipo
+    else if (batteryVoltage > 16.8) // 5s Lipo
     {
-      Power_Zel = 5;
+      numberOfBatteryCells = 5;
     }
-    else if (Power_V > 12.6) // 4s Lipo
+    else if (batteryVoltage > 12.6) // 4s Lipo
     {
-      Power_Zel = 4;
+      numberOfBatteryCells = 4;
     }
-    else if (Power_V > 8.4) // 3s Lipo
+    else if (batteryVoltage > 8.4) // 3s Lipo
     {
-      Power_Zel = 3;
+      numberOfBatteryCells = 3;
     }
-    else if (Power_V > 4.3) // 2s Lipo
+    else if (batteryVoltage > 6.5) // 2s Lipo
     {
-      Power_Zel = 2;
+      numberOfBatteryCells = 2;
     }
     else // 1s Lipo kein Akku angeschlossen
     {
-      Power_Zel = 1;
-      Power_EN = 0;
+      numberOfBatteryCells = 1;
+      batteryDetected = 0;
     }
 
-    Power_V_per = (Power_V / Power_Zel); // Prozentanzeige
-    Power_V_per = map_float(Power_V_per, 3.5, 4.2, 0, 100);
+    batteryChargePercentage = (batteryVoltage / numberOfBatteryCells); // Prozentanzeige
+    batteryChargePercentage = map_float(batteryChargePercentage, 3.5, 4.2, 0, 100);
+    if (batteryChargePercentage < 0)
+    {
+      batteryChargePercentage = 0;
+    }
+    if (batteryChargePercentage > 100)
+    {
+      batteryChargePercentage = 100;
+    }
   }
 }
 
@@ -1547,22 +1547,30 @@ void Extern_Span()
 // EEPROM
 // =======================================================================================================
 //
-void EEprom_Load()
+
+// Init new board with the default values you want ------
+void eepromInit()
 {
-  WIFI_ON = EEPROM.readInt(adr_eprom_WIFI_ON);
-  SERVO_STEPS = EEPROM.readInt(adr_eprom_SERVO_STEPS);
-  SERVO_MAX = EEPROM.readInt(adr_eprom_SERVO_MAX);
-  SERVO_MIN = EEPROM.readInt(adr_eprom_SERVO_MIN);
-  SERVO_Mitte = EEPROM.readInt(adr_eprom_SERVO_Mitte);
-  SERVO_Hz = EEPROM.readInt(adr_eprom_SERVO_Hz);
-  POWER_SCALE = EEPROM.readInt(adr_eprom_POWER_SCALE);
-  SBUS_INVERTED = EEPROM.readInt(adr_eprom_SBUS_INVERTED);
-  ENCODER_INVERTED = EEPROM.readInt(adr_eprom_ENCODER_INVERTED);
-  LANGUAGE = EEPROM.readInt(adr_eprom_LANGUAGE);
-  Serial.println("EEPROM gelesen.");
+  Serial.println(SERVO_MIN);
+  if (SERVO_MIN < 500)
+  {
+    WIFI_ON = 1; // Wifi on
+    SERVO_STEPS = 10;
+    SERVO_MAX = 2000;
+    SERVO_MIN = 1000;
+    SERVO_Mitte = 1500;
+    SERVO_Hz = 50;
+    POWER_SCALE = 948;
+    SBUS_INVERTED = 1; // 1 = Standard signal!
+    ENCODER_INVERTED = 0;
+    LANGUAGE = 0;
+    Serial.println(eepromInitString[LANGUAGE]);
+    eepromWrite();
+  }
 }
 
-void EEprom_Save()
+// Write new values to EEPROM ------
+void eepromWrite()
 {
   EEPROM.writeInt(adr_eprom_WIFI_ON, WIFI_ON);
   EEPROM.writeInt(adr_eprom_SERVO_STEPS, SERVO_STEPS);
@@ -1575,7 +1583,32 @@ void EEprom_Save()
   EEPROM.writeInt(adr_eprom_ENCODER_INVERTED, ENCODER_INVERTED);
   EEPROM.writeInt(adr_eprom_LANGUAGE, LANGUAGE);
   EEPROM.commit();
-  Serial.println("EEPROM gespeichert.");
+  Serial.println(eepromWrittenString[LANGUAGE]);
+}
+
+// Read values from EEPROM ------
+void eepromRead()
+{
+  WIFI_ON = EEPROM.readInt(adr_eprom_WIFI_ON);
+  SERVO_STEPS = EEPROM.readInt(adr_eprom_SERVO_STEPS);
+  SERVO_MAX = EEPROM.readInt(adr_eprom_SERVO_MAX);
+  SERVO_MIN = EEPROM.readInt(adr_eprom_SERVO_MIN);
+  SERVO_Mitte = EEPROM.readInt(adr_eprom_SERVO_Mitte);
+  SERVO_Hz = EEPROM.readInt(adr_eprom_SERVO_Hz);
+  POWER_SCALE = EEPROM.readInt(adr_eprom_POWER_SCALE);
+  SBUS_INVERTED = EEPROM.readInt(adr_eprom_SBUS_INVERTED);
+  ENCODER_INVERTED = EEPROM.readInt(adr_eprom_ENCODER_INVERTED);
+  LANGUAGE = EEPROM.readInt(adr_eprom_LANGUAGE);
+  Serial.println(eepromReadString[LANGUAGE]);
+  Serial.println(WIFI_ON);
+  Serial.println(SERVO_STEPS);
+  Serial.println(SERVO_MAX);
+  Serial.println(SERVO_MIN);
+  Serial.println(SERVO_Mitte);
+  Serial.println(POWER_SCALE);
+  Serial.println(SBUS_INVERTED);
+  Serial.println(ENCODER_INVERTED);
+  Serial.println(LANGUAGE);
 }
 
 //
@@ -1751,7 +1784,7 @@ void webInterface()
               }
               if (header.indexOf("GET /save/on") >= 0)
               {
-                EEprom_Save();
+                eepromWrite();
               }
               if (header.indexOf("GET /pause/on") >= 0)
               {
@@ -2001,6 +2034,6 @@ void loop()
 
   ButtonRead();
   MenuUpdate();
-  Extern_Span();
+  batteryVolts();
   webInterface();
 }

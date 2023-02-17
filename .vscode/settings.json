@@ -1,5 +1,8 @@
 {
     "files.associations": {
         "array": "cpp"
-    }
+    },
+    "githubPullRequests.ignoredPullRequestBranches": [
+        "main"
+    ]
 }
