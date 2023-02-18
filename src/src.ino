@@ -2,7 +2,7 @@
    Servotester Deluxe
    Ziege-One (Der RC-Modelbauer)
    https://www.youtube.com/watch?v=YNLPCft2qjg&list=PLS6SFYu711FpxCNO_j4_ig4ey0NwVQPcW
-   
+
    Modified by TheDIYGuy999
    https://www.youtube.com/channel/UCqWO3PNCSjHmYiACDMLr23w
 
@@ -10,6 +10,8 @@
    Requirements:
    - git is installed (allows to download libraries and boards automatically): https://git-scm.com/downloads
    - PlatformIO plugin is installed in VS Code
+   Drawback for now:
+   - Unstable Multiswitch readings, see comment below. << ---------------------------- ! ! ! !
 
  ESP32 + Encoder + OLED
 
@@ -27,7 +29,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.8.0"; // Software revision.
+char codeVersion[] = "0.9.0"; // Software revision.
 
 //
 // =======================================================================================================
@@ -50,14 +52,15 @@ char codeVersion[] = "0.8.0"; // Software revision.
 // No manual library download is required in Visual Studio Code IDE (see platformio.ini)
 
 /* Boardversion
-ESP32                                         2.0.5
+ESP32                                         2.0.5 <<----- NOTE! this is the only version, which is not causing unstable Multiswitch readings!
+unfortunately it is not compatible with VS Code, so you have to use Arduino for now. The pre compiled .bin images were made with Arduino.
  */
 
 /* Required Libraries / Benötigte Bibliotheken
 ESP32Servo                                    0.12.1
 ESP32Encoder                                  0.10.1
 SBUS                                          internal, no library required anymore
-IBusBM                                        1.1.4
+IBusBM                                        1.1.5
 ESP8266 and ESP OLED driver SSD1306 displays  4.3.0
 ESP32AnalogRead                               0.2.1
  */
@@ -131,7 +134,7 @@ int encoder_read;             // Speicher aktueller Wert Encoder
 volatile unsigned char servopin[5] = {13, 14, 27, 33, 32}; // Pins Servoausgang
 Servo servo[5];                                            // Servo Objekte erzeugen
 int servo_pos[5];                                          // Speicher für Servowerte
-int servocount = 0;                                        // Zähler für Servowerte
+int selectedServo = 0;                                     // Das momentan angesteuerte Servo
 
 // Serial command pins for SBUS, IBUS -----
 #define COMMAND_RX 13 // pin 13
@@ -229,7 +232,7 @@ unsigned long currentTimeSpan = millis(); // Aktuelle Zeit für Externe Spannung
 unsigned long previousTime = 0;           // Previous time
 unsigned long previousTimeAuto = 0;       // Previous time für Auto Modus
 unsigned long previousTimeSpan = 0;       // Previous time für Externe Spannung
-long TimeAuto = 50;                       // Auto time
+int TimeAuto = 50;                        // Auto time
 const long timeoutTime = 2000;            // Define timeout time in milliseconds (example: 2000ms = 2s)
 
 //
@@ -295,7 +298,7 @@ void setup()
   battery.attach(BATTERY_DETECT_PIN);
 
   // SBUS
-  sBus.begin(COMMAND_RX, COMMAND_TX, SBUS_INVERTED, sbusBaud); // begin SBUS communication with compatible receivers
+  // sBus.begin(COMMAND_RX, COMMAND_TX, SBUS_INVERTED); // begin SBUS communication with compatible receivers TODO
 
   // Setup OLED
   display.init();
@@ -707,14 +710,14 @@ void MenuUpdate()
     display.drawString(0, 20, String(SERVO_Hz));
     display.setTextAlignment(TEXT_ALIGN_RIGHT);
     display.drawString(128, 10, "°");
-    display.drawString(128, 20, String(us2degree(servo_pos[servocount])));
+    display.drawString(128, 20, String(us2degree(servo_pos[selectedServo])));
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "Servo" + String(servocount + 1));
-    // display.drawString(64, 25, String(servo_pos[servocount]) + "°");
-    // display.drawProgressBar(8, 50, 112, 10, ((servo_pos[servocount]*100)/180));
-    display.drawString(64, 25, String(servo_pos[servocount]) + "µs");
-    display.drawProgressBar(8, 50, 112, 10, (((servo_pos[servocount] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)));
+    display.drawString(64, 0, "Servo" + String(selectedServo + 1));
+    // display.drawString(64, 25, String(servo_pos[selectedServo]) + "°");
+    // display.drawProgressBar(8, 50, 112, 10, ((servo_pos[selectedServo]*100)/180));
+    display.drawString(64, 25, String(servo_pos[selectedServo]) + "µs");
+    display.drawProgressBar(8, 50, 112, 10, (((servo_pos[selectedServo] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)));
     display.display();
     if (!SetupMenu)
     {
@@ -735,20 +738,20 @@ void MenuUpdate()
 
     if (encoderState == 1)
     {
-      servo_pos[servocount] = servo_pos[servocount] - SERVO_STEPS;
+      servo_pos[selectedServo] = servo_pos[selectedServo] - SERVO_STEPS;
     }
     if (encoderState == 2)
     {
-      servo_pos[servocount] = servo_pos[servocount] + SERVO_STEPS;
+      servo_pos[selectedServo] = servo_pos[selectedServo] + SERVO_STEPS;
     }
 
-    if (servo_pos[servocount] > SERVO_MAX) // Servo MAX
+    if (servo_pos[selectedServo] > SERVO_MAX) // Servo MAX
     {
-      servo_pos[servocount] = SERVO_MAX;
+      servo_pos[selectedServo] = SERVO_MAX;
     }
-    else if (servo_pos[servocount] < SERVO_MIN) // Servo MIN
+    else if (servo_pos[selectedServo] < SERVO_MIN) // Servo MIN
     {
-      servo_pos[servocount] = SERVO_MIN;
+      servo_pos[selectedServo] = SERVO_MIN;
     }
 
     if (buttonState == 1)
@@ -760,50 +763,57 @@ void MenuUpdate()
       servo[2].detach();
       servo[3].detach();
       servo[4].detach();
-      servocount = 0;
+      selectedServo = 0;
     }
 
     if (buttonState == 2)
     {
-      servo_pos[servocount] = SERVO_Mitte; // Servo Mitte
+      servo_pos[selectedServo] = SERVO_Mitte; // Servo Mitte
     }
 
     if (buttonState == 3)
     {
-      servocount++; // Servo +
+      selectedServo++; // Servo +
     }
 
-    if (servocount > 4)
+    if (selectedServo > 4)
     {
-      servocount = 0;
+      selectedServo = 0;
     }
     break;
 
   // Automatik Modus *********************************************************
   case Automatik_Modus_Menu:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 0, delayString[LANGUAGE]);
-    display.drawString(0, 10, String(TimeAuto));
-    display.drawString(0, 20, "ms");
-    display.setTextAlignment(TEXT_ALIGN_RIGHT);
-    display.drawString(128, 10, "°");
-    display.drawString(128, 20, String(us2degree(servo_pos[servocount])));
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "Servo" + String(servocount + 1));
-    display.drawString(64, 25, String(servo_pos[servocount]) + "µs");
-    if (Auto_Pause)
-    {
-      display.setFont(ArialMT_Plain_16);
-      display.drawString(64, 48, "Pause");
+    static unsigned long autoMenuMillis;
+    int autoChange;
+    if (millis() - autoMenuMillis > 20)
+    { // Every 20ms (slow screen refresh down, servo movement is too slow otherwise!)
+      autoMenuMillis = millis();
+      display.clear();
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(0, 0, delayString[LANGUAGE]);
+      display.drawString(0, 10, String(TimeAuto));
+      display.drawString(0, 20, "ms");
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(128, 10, "°");
+      display.drawString(128, 20, String(us2degree(servo_pos[selectedServo])));
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.setFont(ArialMT_Plain_24);
+      display.drawString(64, 0, "Servo" + String(selectedServo + 1));
+      display.drawString(64, 25, String(servo_pos[selectedServo]) + "µs");
+      if (Auto_Pause)
+      {
+        display.setFont(ArialMT_Plain_16);
+        display.drawString(64, 48, "Pause");
+      }
+      else
+      {
+        display.drawProgressBar(8, 50, 112, 10, (((servo_pos[selectedServo] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)));
+      }
+      display.display();
     }
-    else
-    {
-      display.drawProgressBar(8, 50, 112, 10, (((servo_pos[servocount] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)));
-    }
-    display.display();
+
     if (!SetupMenu)
     {
       servo[0].attach(servopin[0], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
@@ -822,50 +832,49 @@ void MenuUpdate()
       if ((currentTimeAuto - previousTimeAuto) > TimeAuto)
       {
         previousTimeAuto = currentTimeAuto;
-        if (Autopos[servocount] > 1500)
+        if (Autopos[selectedServo] > 1500)
         {
-          servo_pos[servocount] = servo_pos[servocount] + SERVO_STEPS;
+          servo_pos[selectedServo] = servo_pos[selectedServo] + SERVO_STEPS;
         }
         else
         {
-          servo_pos[servocount] = servo_pos[servocount] - SERVO_STEPS;
+          servo_pos[selectedServo] = servo_pos[selectedServo] - SERVO_STEPS;
         }
+        servo[selectedServo].writeMicroseconds(servo_pos[selectedServo]);
       }
     }
 
-    if (servo_pos[servocount] < SERVO_MIN)
+    if (servo_pos[selectedServo] < SERVO_MIN)
     {
-      Autopos[servocount] = SERVO_MAX;
-      servo_pos[servocount] = SERVO_MIN;
+      Autopos[selectedServo] = SERVO_MAX;
+      servo_pos[selectedServo] = SERVO_MIN;
     }
-    if (servo_pos[servocount] > SERVO_MAX)
+    if (servo_pos[selectedServo] > SERVO_MAX)
     {
-      Autopos[servocount] = SERVO_MIN;
-      servo_pos[servocount] = SERVO_MAX;
+      Autopos[selectedServo] = SERVO_MIN;
+      servo_pos[selectedServo] = SERVO_MAX;
     }
-
-    servo[servocount].writeMicroseconds(servo_pos[servocount]);
-
+    autoChange = map(TimeAuto, 0, 100, 1, 10); // Calculate adjustment step
     if (encoderState == 1)
     {
       if (Auto_Pause)
       {
-        servo_pos[servocount] = servo_pos[servocount] - SERVO_STEPS;
+        servo_pos[selectedServo] = servo_pos[selectedServo] - SERVO_STEPS;
       }
       else
       {
-        TimeAuto -= 10;
+        TimeAuto -= autoChange;
       }
     }
     if (encoderState == 2)
     {
       if (Auto_Pause)
       {
-        servo_pos[servocount] = servo_pos[servocount] + SERVO_STEPS;
+        servo_pos[selectedServo] = servo_pos[selectedServo] + SERVO_STEPS;
       }
       else
       {
-        TimeAuto += 10;
+        TimeAuto += autoChange;
       }
     }
 
@@ -878,16 +887,16 @@ void MenuUpdate()
       TimeAuto = 0;
     }
 
-    if (servocount > 4)
+    if (selectedServo > 4)
     {
-      servocount = 4;
+      selectedServo = 4;
     }
-    else if (servocount < 0)
+    else if (selectedServo < 0)
     {
-      servocount = 0;
+      selectedServo = 0;
     }
 
-    if (buttonState == 1)
+    if (buttonState == 1) // Long press = back
     {
       Menu = Automatik_Modus_Auswahl;
       SetupMenu = false;
@@ -896,22 +905,22 @@ void MenuUpdate()
       servo[2].detach();
       servo[3].detach();
       servo[4].detach();
-      servocount = 0;
+      selectedServo = 0;
     }
 
-    if (buttonState == 2)
+    if (buttonState == 2) // Short press = pause
     {
       Auto_Pause = !Auto_Pause;
     }
 
-    if (buttonState == 3)
+    if (buttonState == 3) // Doubleclick = Change channel
     {
-      servocount++; // Servo +
+      selectedServo++; // Servo +
     }
 
-    if (servocount > 4)
+    if (selectedServo > 4)
     {
-      servocount = 0;
+      selectedServo = 0;
     }
     break;
 
@@ -920,9 +929,9 @@ void MenuUpdate()
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, impulseString[LANGUAGE] + String(servocount + 1));
-    display.drawString(64, 25, String(servo_pos[servocount]) + "µs");
-    display.drawProgressBar(8, 50, 112, 10, (((servo_pos[servocount] - Impuls_min) * 100) / (Impuls_max - Impuls_min)));
+    display.drawString(64, 0, impulseString[LANGUAGE] + String(selectedServo + 1));
+    display.drawString(64, 25, String(servo_pos[selectedServo]) + "µs");
+    display.drawProgressBar(8, 50, 112, 10, (((servo_pos[selectedServo] - Impuls_min) * 100) / (Impuls_max - Impuls_min)));
     display.display();
     if (!SetupMenu)
     {
@@ -933,44 +942,44 @@ void MenuUpdate()
       pinMode(servopin[4], INPUT);
       SetupMenu = true;
     }
-    servo_pos[servocount] = pulseIn(servopin[servocount], HIGH, 50000);
+    servo_pos[selectedServo] = pulseIn(servopin[selectedServo], HIGH, 50000);
 
-    if (servo_pos[servocount] < Impuls_min)
+    if (servo_pos[selectedServo] < Impuls_min)
     {
-      Impuls_min = servo_pos[servocount];
+      Impuls_min = servo_pos[selectedServo];
     }
-    if (servo_pos[servocount] > Impuls_max)
+    if (servo_pos[selectedServo] > Impuls_max)
     {
-      Impuls_max = servo_pos[servocount];
+      Impuls_max = servo_pos[selectedServo];
     }
 
     if (encoderState == 1)
     {
-      servocount--;
+      selectedServo--;
       Impuls_min = 1000;
       Impuls_max = 2000;
     }
     if (encoderState == 2)
     {
-      servocount++;
+      selectedServo++;
       Impuls_min = 1000;
       Impuls_max = 2000;
     }
 
-    if (servocount > 4)
+    if (selectedServo > 4)
     {
-      servocount = 4;
+      selectedServo = 4;
     }
-    else if (servocount < 0)
+    else if (selectedServo < 0)
     {
-      servocount = 0;
+      selectedServo = 0;
     }
 
     if (buttonState == 1)
     {
       Menu = Impuls_lesen_Auswahl;
       SetupMenu = false;
-      servocount = 0;
+      selectedServo = 0;
     }
 
     if (buttonState == 2)
@@ -983,15 +992,21 @@ void MenuUpdate()
   // Multiswitch lesen *********************************************************
   https: // www.modelltruck.net/showthread.php?54795-Futaba-Robbe-Multiswitch-Decoder-mit-Arduino
   case Multiswitch_lesen_Menu:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(20, 0, String(value1[8]));
-    display.drawString(64, 0, String(value1[0]) + "  " + String(value1[1]));
-    display.drawString(64, 15, String(value1[2]) + "  " + String(value1[3]));
-    display.drawString(64, 30, String(value1[4]) + "  " + String(value1[5]));
-    display.drawString(64, 45, String(value1[6]) + "  " + String(value1[7]));
-    display.display();
+    static unsigned long multiswitchMenuMillis;
+    if (millis() - multiswitchMenuMillis > 20)
+    { // Every 20ms (slow screen refresh down, signal is unstable otherwise!) TODO, still unstable
+      multiswitchMenuMillis = millis();
+      display.clear();
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(20, 0, String(value1[8]));
+      display.drawString(64, 0, String(value1[0]) + "  " + String(value1[1]));
+      display.drawString(64, 15, String(value1[2]) + "  " + String(value1[3]));
+      display.drawString(64, 30, String(value1[4]) + "  " + String(value1[5]));
+      display.drawString(64, 45, String(value1[6]) + "  " + String(value1[7]));
+      display.display();
+    }
+
     if (!SetupMenu)
     {
       pinMode(servopin[0], INPUT);
@@ -1047,6 +1062,12 @@ void MenuUpdate()
     display.drawString(96, 45, String(map(SBUSchannels[14], 172, 1811, 1000, 2000)));
     display.drawString(128, 45, String(map(SBUSchannels[15], 172, 1811, 1000, 2000)));
     display.display();
+
+    if (!SetupMenu)
+    {
+      sBus.begin(COMMAND_RX, COMMAND_TX, SBUS_INVERTED); // begin SBUS communication with compatible receivers
+      SetupMenu = true;
+    }
 
     if (encoderState == 1)
     {
@@ -1199,6 +1220,7 @@ void MenuUpdate()
       display.drawString(10, 45, "->");
     }
     display.display();
+
     if (!SetupMenu)
     {
 
@@ -1467,7 +1489,7 @@ void MenuUpdate()
 }
 
 // =======================================================================================================
-// EXTERNE SPANNUNGSVERSORGUNG
+// BATTERY MONITOR
 // =======================================================================================================
 //
 void batteryVolts()
@@ -1477,49 +1499,34 @@ void batteryVolts()
   if ((currentTimeSpan - previousTimeSpan) > 2000)
   {
     previousTimeSpan = currentTimeSpan;
-    /*
-        // ADC & DAC calibration https://hackaday.io/project/27511-microfluidics-control-system/log/69406-adc-dac-calibration
-        int val = analogRead(BATTERY_DETECT_PIN);
-        double x = val;
-        double y = -3e-12 * pow(x, 3) - 7e-10 * pow(x, 2) + 0.0003 * x + 0.0169;
-        int MeasuredValue = std::min(3300, std::max(0, int(round(y * UINT8_MAX))));
-
-        // Serial.print("MeasuredValue: ");
-        // Serial.println(MeasuredValue);
-
-        // Wert in Volt umrechnen
-        batteryVoltage = MeasuredValue;
-        batteryVoltage = batteryVoltage / 100.0;
-    */
 
     batteryVoltage = battery.readVoltage() * 0.825; // We want the same POWER_SCALE as before with analogRead()
 
     float scale_value = POWER_SCALE / 100.0;
-
     batteryVoltage = batteryVoltage * scale_value;
 
     Serial.print(eepromVoltageString[LANGUAGE]);
-    Serial.println(batteryVoltage, 8);
+    Serial.println(batteryVoltage, 3);
 
     batteryDetected = 1;
 
-    if (batteryVoltage > 21) // 6s Lipo
+    if (batteryVoltage > 21.25) // 6s Lipo
     {
       numberOfBatteryCells = 6;
     }
-    else if (batteryVoltage > 16.8) // 5s Lipo
+    else if (batteryVoltage > 17.0) // 5s Lipo
     {
       numberOfBatteryCells = 5;
     }
-    else if (batteryVoltage > 12.6) // 4s Lipo
+    else if (batteryVoltage > 12.75) // 4s Lipo
     {
       numberOfBatteryCells = 4;
     }
-    else if (batteryVoltage > 8.4) // 3s Lipo
+    else if (batteryVoltage > 8.5) // 3s Lipo
     {
       numberOfBatteryCells = 3;
     }
-    else if (batteryVoltage > 6.5) // 2s Lipo
+    else if (batteryVoltage > 6.0) // 2s Lipo
     {
       numberOfBatteryCells = 2;
     }
@@ -1608,6 +1615,10 @@ void eepromRead()
   Serial.println(POWER_SCALE);
   Serial.println(SBUS_INVERTED);
   Serial.println(ENCODER_INVERTED);
+  if (LANGUAGE < 0) // Make sure, language is in correct range, otherwise device will crash!
+    LANGUAGE = 0;
+  if (LANGUAGE > noOfLanguages)
+    LANGUAGE = noOfLanguages;
   Serial.println(LANGUAGE);
 }
 
@@ -1904,7 +1915,7 @@ void webInterface()
 
                 client.println("<p><h3>Servo Geschwindigkeit : <span id=\"textServoSpeedValue\">" + valueString + "</span>");
 
-                client.println("<input type=\"range\" min=\"5\" max=\"100\" step=\"5\" class=\"slider\" id=\"ServoSpeedAuto\" onchange=\"ServoSpeed(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<input type=\"range\" min=\"0\" max=\"100\" step=\"5\" class=\"slider\" id=\"ServoSpeedAuto\" onchange=\"ServoSpeed(this.value)\" value=\"" + valueString + "\" /></p>");
 
                 client.println("<script> function ServoSpeed(pos) { ");
                 client.println("var sliderValue = document.getElementById(\"ServoSpeedAuto\").value;");
@@ -2013,7 +2024,7 @@ void webInterface()
           }
         }
       }
-      // header löschen
+      // Header löschen
       header = "";
       // Schließen Sie die Verbindung
       client.stop();
@@ -2021,6 +2032,22 @@ void webInterface()
       Serial.println("");
     }
   }
+}
+
+//
+// =======================================================================================================
+// LOOP TIME MEASUREMENT
+// =======================================================================================================
+//
+
+unsigned long loopDuration()
+{
+  static unsigned long timerOld;
+  unsigned long loopTime;
+  unsigned long timer = millis();
+  loopTime = timer - timerOld;
+  timerOld = timer;
+  return loopTime;
 }
 
 //
@@ -2036,4 +2063,5 @@ void loop()
   MenuUpdate();
   batteryVolts();
   webInterface();
+  // Serial.print(loopDuration());
 }

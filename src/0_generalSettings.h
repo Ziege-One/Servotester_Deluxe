@@ -7,7 +7,7 @@
  */
 
 // Display settings ----------------------------------------------------------------------------------------------
-//#define OLED1306 //A 1306 0.96" Display is selected, if defined. Otherwise a 1106 1.3" display
+//#define OLED1306 //A SSD1306 0.96" Display is selected, if defined. Otherwise a SH1106 1.3" display
 //#define ALTERNATIVE_LOGO // Alternative boot logo
 
 // WiFi settings -------------------------------------------------------------------------------------------------
@@ -29,5 +29,3 @@ WIFI_POWER_2dBm = 8          // lowest setting, WiFi may become weak
 */ 
 wifi_power_t cpType = WIFI_POWER_13dBm; // Only use values from above!
 
-// SBUS settings -------------------------------------------------------------------------------------------------
-uint32_t sbusBaud = 100000;         // Standard is 100000, don't change it!
