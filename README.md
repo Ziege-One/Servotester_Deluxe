@@ -6,10 +6,14 @@ forked from his GitHub: https://github.com/Ziege-One/Servotester_Deluxe
 
 PCB, schematic and more details: https://www.pcbway.com/project/shareproject/Servotester_Deluxe_62a3f47c.html
 
+## New in v0.10.0:
+- Added encoder acceleration in servo tester mode. Makes the operation very handy. If you want to make bigger servo movements, just rotate the encoder faster!
+- Unstable Multiswitch issues because of incompatible espressif 32 board solved, see comments in src.ino
+
 ## New in v0.9.0:
 - Servo is able to oscillate way faster in automatic mode, speed adjustability improved
 - Made sure, there is no language string array pointer overflow, if EEPROM was deleted before
-- There are still issues with unstable Multiswitch readings. Solution for now: use the pre compiled bin files or use Arduino IDE 2.0.3 with espressif board 2.0.5 (which is unfortunately incompatible with VS Code)
+- There are still issues with unstable Multiswitch readings. Solution for now: use the pre compiled bin files or use Arduino IDE 2.0.3 with espressif 32 board 2.0.5 (which is unfortunately incompatible with VS Code)
 
 ## New in v0.8.0:
 - Support for calibrated analogRead, using the ESP32AnalogRead library is improving battery monitoring

@@ -10,8 +10,9 @@
    Requirements:
    - git is installed (allows to download libraries and boards automatically): https://git-scm.com/downloads
    - PlatformIO plugin is installed in VS Code
-   Drawback for now:
-   - Unstable Multiswitch readings, see comment below. << ---------------------------- ! ! ! !
+   - Espressif32 platform is up to date in Platformio > Platforms > Updates
+
+   If you are using Arduino IDE: Select the following board: "ESP32 Dev Module"
 
  ESP32 + Encoder + OLED
 
@@ -29,7 +30,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.9.0"; // Software revision.
+char codeVersion[] = "0.10.0"; // Software revision.
 
 //
 // =======================================================================================================
@@ -52,7 +53,7 @@ char codeVersion[] = "0.9.0"; // Software revision.
 // No manual library download is required in Visual Studio Code IDE (see platformio.ini)
 
 /* Boardversion
-ESP32                                         2.0.5 <<----- NOTE! this is the only version, which is not causing unstable Multiswitch readings!
+ESP32                                         2.0.5 or 2.0.6 <<--- (make sure your Espressif32 piatform is up to date in Platformio > Platforms > Updates)
 unfortunately it is not compatible with VS Code, so you have to use Arduino for now. The pre compiled .bin images were made with Arduino.
  */
 
@@ -129,6 +130,7 @@ int Duration_double = 200;    // Zeit für Doppelklick
 int bouncing = 50;            // Zeit für Taster Entprellung
 int encoder_last;             // Speicher letzer Wert Encoder
 int encoder_read;             // Speicher aktueller Wert Encoder
+int encoderSpeed;             // Speicher aktuelle Encoder Geschwindigkeit für Beschleunigung
 
 // Servo
 volatile unsigned char servopin[5] = {13, 14, 27, 33, 32}; // Pins Servoausgang
@@ -429,14 +431,28 @@ void ButtonRead()
     Serial.println(buttonState);
   }
 
-  encoder_read = encoder.getCount();
+  // Encoder -------------------------------------------------------------------------------------------------
+  encoder_read = encoder.getCount(); // Read encoder --------------
 
-  if (previousDebouncTime + 20 > millis())
+  if (previousDebouncTime + 10 > millis()) // Debouncing 10ms -------------
   {
     encoder_last = encoder_read;
   }
 
-  if (encoder_last > encoder_read)
+  static unsigned long encoderSpeedMillis;
+  static int lastEncoderSpeed;
+
+  if (millis() - encoderSpeedMillis > 100) // Encoder speed detection -----------------
+  {
+    encoderSpeedMillis = millis();
+    encoderSpeed = abs(encoder_read - lastEncoderSpeed);
+    encoderSpeed = constrain(encoderSpeed, 1, 4);
+    // Serial.println(encoderSpeed); // For encoder speed debuggging
+
+    lastEncoderSpeed = encoder_read;
+  }
+
+  if (encoder_last > encoder_read) // Left turn detected --------------
   {
     if (encoder_last > encoder_read + 1)
     {
@@ -452,7 +468,7 @@ void ButtonRead()
       previousDebouncTime = millis();
     }
   }
-  else if (encoder_last < encoder_read)
+  else if (encoder_last < encoder_read) // Right turn detected --------------
   {
     if (encoder_last < encoder_read - 1)
     {
@@ -471,8 +487,6 @@ void ButtonRead()
   else
   {
     encoderState = 0;
-    encoder.setCount(1500); // set starting count value after attaching
-    encoder_last = 1500;
   }
 }
 
@@ -736,13 +750,13 @@ void MenuUpdate()
     servo[3].writeMicroseconds(servo_pos[3]);
     servo[4].writeMicroseconds(servo_pos[4]);
 
-    if (encoderState == 1)
+    if (encoderState == 1) // Left turn
     {
-      servo_pos[selectedServo] = servo_pos[selectedServo] - SERVO_STEPS;
+      servo_pos[selectedServo] = servo_pos[selectedServo] - (SERVO_STEPS * encoderSpeed); // Variable encoder speed
     }
-    if (encoderState == 2)
+    if (encoderState == 2) // Right turn
     {
-      servo_pos[selectedServo] = servo_pos[selectedServo] + SERVO_STEPS;
+      servo_pos[selectedServo] = servo_pos[selectedServo] + (SERVO_STEPS * encoderSpeed);
     }
 
     if (servo_pos[selectedServo] > SERVO_MAX) // Servo MAX
@@ -1004,6 +1018,7 @@ void MenuUpdate()
       display.drawString(64, 15, String(value1[2]) + "  " + String(value1[3]));
       display.drawString(64, 30, String(value1[4]) + "  " + String(value1[5]));
       display.drawString(64, 45, String(value1[6]) + "  " + String(value1[7]));
+      display.drawString(5, 30, "Multiswitch");
       display.display();
     }
 
