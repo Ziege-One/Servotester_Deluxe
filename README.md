@@ -6,6 +6,10 @@ forked from his GitHub: https://github.com/Ziege-One/Servotester_Deluxe
 
 PCB, schematic and more details: https://www.pcbway.com/project/shareproject/Servotester_Deluxe_62a3f47c.html
 
+## New in v0.11.0:
+- Added a Pong game ;-)
+- Ball speed is adjustable in settings
+
 ## New in v0.10.0:
 - Added encoder acceleration in servo tester mode. Makes the operation very handy. If you want to make bigger servo movements, just rotate the encoder faster!
 - Unstable Multiswitch issues because of incompatible espressif 32 board solved, see comments in src.ino

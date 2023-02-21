@@ -18,6 +18,7 @@ String inversedString[] {"Inversed", "Invertiert", "Inversé"};
 String standardString[] {"Standard", "Standart", "Défaut"};
 String encoderDirectionString[] {"Encoder direction", "Encoder Richtung", "Encodeur direct."};
 String languageString[] {"Language", "Sprache", "Langue"};
+String pongBallRateString[] {"Pong ball speed", "Pong Ball Gesch.", "Pong V. de balle"};
 
 // Impuls lesen
 String impulseString[] {"Impulse", "Impuls", "Impulsion"};

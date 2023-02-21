@@ -30,7 +30,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.10.0"; // Software revision.
+char codeVersion[] = "0.11.0"; // Software revision.
 
 //
 // =======================================================================================================
@@ -89,7 +89,7 @@ ESP32AnalogRead                               0.2.1
 #include "src/languages.h" // Menu language ressources
 
 // EEPROM
-#define EEPROM_SIZE 40
+#define EEPROM_SIZE 44
 
 #define adr_eprom_WIFI_ON 0           // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_SERVO_STEPS 4       // SERVO Steps für Encoder im Servotester Modus
@@ -100,7 +100,8 @@ ESP32AnalogRead                               0.2.1
 #define adr_eprom_POWER_SCALE 24      // SERVO µs Mitte Wert im Servotester Modus
 #define adr_eprom_SBUS_INVERTED 28    // SBUS inverted
 #define adr_eprom_ENCODER_INVERTED 32 // Encoder inverted
-#define adr_eprom_LANGUAGE 36         // SBUS inverted
+#define adr_eprom_LANGUAGE 36         // Gewählte Sprache
+#define adr_eprom_PONG_BALL_RATE 40   // Pong Ball Geschwindigkeit
 
 // Speicher der Einstellungen
 int WIFI_ON;
@@ -113,6 +114,7 @@ int POWER_SCALE;
 int SBUS_INVERTED;
 int ENCODER_INVERTED;
 int LANGUAGE;
+int PONG_BALL_RATE;
 
 // Encoder + button
 ESP32Encoder encoder;
@@ -173,7 +175,8 @@ enum
   Multiswitch_lesen_Auswahl = 4,
   SBUS_lesen_Auswahl = 5,
   IBUS_lesen_Auswahl = 6,
-  Einstellung_Auswahl = 7,
+  Pong_Auswahl = 7,
+  Einstellung_Auswahl = 8,
   //
   Servotester_Menu = 10,
   Automatik_Modus_Menu = 20,
@@ -181,7 +184,8 @@ enum
   Multiswitch_lesen_Menu = 40,
   SBUS_lesen_Menu = 50,
   IBUS_lesen_Menu = 60,
-  Einstellung_Menu = 70
+  Pong_Menu = 70,
+  Einstellung_Menu = 80
 };
 
 //-Menu 20 Automatik Modus
@@ -213,6 +217,8 @@ SSD1306Wire display(0x3c, SDA, SCL); // Oled Hardware an SDA 21 und SCL 22
 #else
 SH1106Wire display(0x3c, SDA, SCL); // Oled Hardware an SDA 21 und SCL 22
 #endif
+
+#include "src/pong.h" // A little pong game :-)
 
 // Webserver auf Port 80
 WiFiServer server(80);
@@ -688,6 +694,33 @@ void MenuUpdate()
     }
     break;
 
+    // Pong Auswahl *********************************************************
+  case Pong_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu >");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, "P  O  N  G");
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(64, 45, "TheDIYGuy999 Edition");
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu++;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = Pong_Menu;
+    }
+    break;
+
   // Einstellung Auswahl *********************************************************
   case Einstellung_Auswahl:
     display.clear();
@@ -1154,6 +1187,52 @@ void MenuUpdate()
     }
     break;
 
+    // Pong spielen *********************************************************
+  case Pong_Menu:
+
+    static bool paddleUp;
+    static bool paddleDown;
+    static bool reset;
+    pong(paddleUp, paddleDown, reset, encoderSpeed); // Run pong game
+
+    if (!SetupMenu)
+    {
+
+      SetupMenu = true;
+    }
+
+    if (encoderState == 1) // Paddle up
+    {
+      paddleUp = true;
+      paddleDown = false;
+    }
+    else if (encoderState == 2) // Paddle down
+    {
+      paddleDown = true;
+      paddleUp = false;
+    }
+    else // Paddle stop
+    {
+      paddleUp = false;
+      paddleDown = false;
+    }
+
+    if (buttonState == 1) // Back
+    {
+      Menu = Pong_Auswahl;
+      SetupMenu = false;
+    }
+
+    if (buttonState == 2) // Reset
+    {
+      reset = true;
+    }
+    else
+    {
+      reset = false;
+    }
+    break;
+
   // Einstellung *********************************************************
   case Einstellung_Menu:
     display.clear();
@@ -1229,6 +1308,10 @@ void MenuUpdate()
       display.drawString(64, 25, languageString[LANGUAGE]);
       display.drawString(64, 45, languagesString[LANGUAGE]);
       break;
+    case 10:
+      display.drawString(64, 25, pongBallRateString[LANGUAGE]);
+      display.drawString(64, 45, String(PONG_BALL_RATE));
+      break;
     }
     if (Edit)
     {
@@ -1282,6 +1365,9 @@ void MenuUpdate()
         case 9:
           LANGUAGE--;
           break;
+        case 10:
+          PONG_BALL_RATE--;
+          break;
         }
       }
     }
@@ -1325,21 +1411,34 @@ void MenuUpdate()
         case 9:
           LANGUAGE++;
           break;
+        case 10:
+          PONG_BALL_RATE++;
+          break;
         }
       }
     }
 
     // Menu range
-    if (Einstellung > 9)
+    if (Einstellung > 10)
     {
       Einstellung = 0;
     }
     else if (Einstellung < 0)
     {
-      Einstellung = 9;
+      Einstellung = 10;
     }
 
     // Limits
+    if (PONG_BALL_RATE < 1)
+    { // Pong ball rate nicht unter 1
+      PONG_BALL_RATE = 1;
+    }
+
+    if (PONG_BALL_RATE > 4)
+    { // Pong ball rate nicht über 4
+      PONG_BALL_RATE = 4;
+    }
+
     if (LANGUAGE < 0)
     { // Language nicht unter 0
       LANGUAGE = 0;
@@ -1586,6 +1685,7 @@ void eepromInit()
     SBUS_INVERTED = 1; // 1 = Standard signal!
     ENCODER_INVERTED = 0;
     LANGUAGE = 0;
+    PONG_BALL_RATE = 1;
     Serial.println(eepromInitString[LANGUAGE]);
     eepromWrite();
   }
@@ -1604,6 +1704,7 @@ void eepromWrite()
   EEPROM.writeInt(adr_eprom_SBUS_INVERTED, SBUS_INVERTED);
   EEPROM.writeInt(adr_eprom_ENCODER_INVERTED, ENCODER_INVERTED);
   EEPROM.writeInt(adr_eprom_LANGUAGE, LANGUAGE);
+  EEPROM.writeInt(adr_eprom_PONG_BALL_RATE, PONG_BALL_RATE);
   EEPROM.commit();
   Serial.println(eepromWrittenString[LANGUAGE]);
 }
@@ -1621,6 +1722,7 @@ void eepromRead()
   SBUS_INVERTED = EEPROM.readInt(adr_eprom_SBUS_INVERTED);
   ENCODER_INVERTED = EEPROM.readInt(adr_eprom_ENCODER_INVERTED);
   LANGUAGE = EEPROM.readInt(adr_eprom_LANGUAGE);
+  PONG_BALL_RATE = EEPROM.readInt(adr_eprom_PONG_BALL_RATE);
   Serial.println(eepromReadString[LANGUAGE]);
   Serial.println(WIFI_ON);
   Serial.println(SERVO_STEPS);
