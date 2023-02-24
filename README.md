@@ -8,22 +8,22 @@ PCB, schematic and more details: https://www.pcbway.com/project/shareproject/Ser
 
 Support thread (in German and English): https://www.rc-modellbau-portal.de/index.php?threads/servotester-deluxe-von-der-rc-modellbauer-mit-meiner-erweiterten-software.17383/
 
-##How to program it
+## How to program it
 - With Arduino IDE
 - With Visual Studio Code (recommended)
 - With ESPHome-Flasher (for pre compiled .bin files, depending on your display)
 
-##Schematic
+## Schematic
 ![](documentation/pictures/schematic.png)
 
 ![](documentation/pictures/resistorValues.JPG)
 
 ![](documentation/pictures/capacitor.JPG)
 
-##Menu
+## Menu
 ![](documentation/pictures/menu.png)
 
-##Changelog
+## Changelog
 
 ## New in v0.12.0:
 - Added a Flappy Birds Game
