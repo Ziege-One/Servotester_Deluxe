@@ -1,10 +1,33 @@
-# Servotester_Deluxe
+# Servotester_Deluxe (with improved software)
 
 The original autor is "Der RC Modellbauer": https://www.youtube.com/@DerRCModellbauer
 
 forked from his GitHub: https://github.com/Ziege-One/Servotester_Deluxe
 
 PCB, schematic and more details: https://www.pcbway.com/project/shareproject/Servotester_Deluxe_62a3f47c.html
+
+Support thread (in German and English): https://www.rc-modellbau-portal.de/index.php?threads/servotester-deluxe-von-der-rc-modellbauer-mit-meiner-erweiterten-software.17383/
+
+##How to program it
+- With Arduino IDE
+- With Visual Studio Code (recommended)
+- With ESPHome-Flasher (for pre compiled .bin files, depending on your display)
+
+##Schematic
+![](documentation/pictures/schematic.png)
+
+![](documentation/pictures/resistorValues.JPG)
+
+![](documentation/pictures/capacitor.JPG)
+
+##Menu
+![](documentation/pictures/menu.png)
+
+##Changelog
+
+## New in v0.12.0:
+- Added a Flappy Birds Game
+- Alternative logo optimized
 
 ## New in v0.11.0:
 - Added a Pong game ;-)

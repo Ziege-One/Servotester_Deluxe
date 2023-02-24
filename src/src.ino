@@ -30,7 +30,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.11.0"; // Software revision.
+char codeVersion[] = "0.12.0"; // Software revision.
 
 //
 // =======================================================================================================
@@ -54,7 +54,6 @@ char codeVersion[] = "0.11.0"; // Software revision.
 
 /* Boardversion
 ESP32                                         2.0.5 or 2.0.6 <<--- (make sure your Espressif32 piatform is up to date in Platformio > Platforms > Updates)
-unfortunately it is not compatible with VS Code, so you have to use Arduino for now. The pre compiled .bin images were made with Arduino.
  */
 
 /* Required Libraries / Benötigte Bibliotheken
@@ -75,7 +74,7 @@ ESP32AnalogRead                               0.2.1
 
 // No need to install these, they come with the ESP32 board definition
 #include <WiFi.h>
-#include <EEPROM.h>
+#include <EEPROM.h>  // for non volatile storage
 #include <Esp.h>     // for displaying memory information
 #include "rom/rtc.h" // for displaying reset reason
 
@@ -133,6 +132,7 @@ int bouncing = 50;            // Zeit für Taster Entprellung
 int encoder_last;             // Speicher letzer Wert Encoder
 int encoder_read;             // Speicher aktueller Wert Encoder
 int encoderSpeed;             // Speicher aktuelle Encoder Geschwindigkeit für Beschleunigung
+bool disableButtonRead;       // In gewissen Situationen soll der Encoder Button nicht von der blockierenden Funktion gelesen werden
 
 // Servo
 volatile unsigned char servopin[5] = {13, 14, 27, 33, 32}; // Pins Servoausgang
@@ -176,7 +176,8 @@ enum
   SBUS_lesen_Auswahl = 5,
   IBUS_lesen_Auswahl = 6,
   Pong_Auswahl = 7,
-  Einstellung_Auswahl = 8,
+  Flappy_Birds_Auswahl = 8,
+  Einstellung_Auswahl = 9,
   //
   Servotester_Menu = 10,
   Automatik_Modus_Menu = 20,
@@ -184,12 +185,12 @@ enum
   Multiswitch_lesen_Menu = 40,
   SBUS_lesen_Menu = 50,
   IBUS_lesen_Menu = 60,
-  Pong_Menu = 70,
-  Einstellung_Menu = 80
+  Flappy_Birds_Menu = 70,
+  Pong_Menu = 80,
+  Einstellung_Menu = 90
 };
 
 //-Menu 20 Automatik Modus
-
 int Autopos[5];      // Speicher
 bool Auto_Pause = 0; // Pause im Auto Modus
 
@@ -218,7 +219,8 @@ SSD1306Wire display(0x3c, SDA, SCL); // Oled Hardware an SDA 21 und SCL 22
 SH1106Wire display(0x3c, SDA, SCL); // Oled Hardware an SDA 21 und SCL 22
 #endif
 
-#include "src/pong.h" // A little pong game :-)
+#include "src/pong.h"        // A little pong game :-)
+#include "src/flappyBirds.h" // A little flappy birds game :-)
 
 // Webserver auf Port 80
 WiFiServer server(80);
@@ -304,9 +306,6 @@ void setup()
 
   // Battery
   battery.attach(BATTERY_DETECT_PIN);
-
-  // SBUS
-  // sBus.begin(COMMAND_RX, COMMAND_TX, SBUS_INVERTED); // begin SBUS communication with compatible receivers TODO
 
   // Setup OLED
   display.init();
@@ -401,40 +400,42 @@ void setup()
 //
 void ButtonRead()
 {
-
-  buttonState = 0;
-  if (!(digitalRead(BUTTON_PIN)))
-  {                  // Button gedrückt 0
-    delay(bouncing); // Taster entprellen
-    prev = millis();
-    buttonState = 1;
-    while ((millis() - prev) <= Duration_long)
-    {
-      if (digitalRead(BUTTON_PIN))
-      {                  // Button losgelassen 1 innerhalb Zeit
-        delay(bouncing); // Taster entprellen
-        buttonState = 2;
-        prev2 = millis();
-        while ((millis() - prev2) <= Duration_double)
-        { // Doppelkick abwarten
-          if (!(digitalRead(BUTTON_PIN)))
-          {                  // Button gedrückt 0 innerhalb Zeit Doppelklick
-            delay(bouncing); // Taster entprellen
-            buttonState = 3;
-            if (digitalRead(BUTTON_PIN))
-            { // Button losgelassen 1
-              break;
+  if (!disableButtonRead)
+  {
+    buttonState = 0;
+    if (!(digitalRead(BUTTON_PIN)))
+    {                  // Button gedrückt 0
+      delay(bouncing); // Taster entprellen
+      prev = millis();
+      buttonState = 1;
+      while ((millis() - prev) <= Duration_long)
+      {
+        if (digitalRead(BUTTON_PIN))
+        {                  // Button losgelassen 1 innerhalb Zeit
+          delay(bouncing); // Taster entprellen
+          buttonState = 2;
+          prev2 = millis();
+          while ((millis() - prev2) <= Duration_double)
+          { // Doppelkick abwarten
+            if (!(digitalRead(BUTTON_PIN)))
+            {                  // Button gedrückt 0 innerhalb Zeit Doppelklick
+              delay(bouncing); // Taster entprellen
+              buttonState = 3;
+              if (digitalRead(BUTTON_PIN))
+              { // Button losgelassen 1
+                break;
+              }
             }
           }
+          break;
         }
-        break;
       }
+      while (!(digitalRead(BUTTON_PIN)))
+      { // Warten bis Button nicht gedückt ist = 1
+      }
+      Serial.print("Buttonstate: ");
+      Serial.println(buttonState);
     }
-    while (!(digitalRead(BUTTON_PIN)))
-    { // Warten bis Button nicht gedückt ist = 1
-    }
-    Serial.print("Buttonstate: ");
-    Serial.println(buttonState);
   }
 
   // Encoder -------------------------------------------------------------------------------------------------
@@ -718,6 +719,35 @@ void MenuUpdate()
     if (buttonState == 2)
     {
       Menu = Pong_Menu;
+    }
+    break;
+
+    // Flappy Birds Auswahl *********************************************************
+  case Flappy_Birds_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu >");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, "Flappy Birds");
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(64, 45, "TheDIYGuy999 Edition");
+    display.display();
+
+    disableButtonRead = false; // Re enable regular button read function
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu++;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = Flappy_Birds_Menu;
     }
     break;
 
@@ -1195,7 +1225,7 @@ void MenuUpdate()
     static bool reset;
     pong(paddleUp, paddleDown, reset, encoderSpeed); // Run pong game
 
-    if (!SetupMenu)
+    if (!SetupMenu) // This stuff is only executed once
     {
 
       SetupMenu = true;
@@ -1230,6 +1260,33 @@ void MenuUpdate()
     else
     {
       reset = false;
+    }
+    break;
+
+    // Flappy Birds spielen *********************************************************
+  case Flappy_Birds_Menu:
+
+    static bool flappyClick;
+    static unsigned long lastClick = millis();
+
+    disableButtonRead = true; // Disable button read function for Flappy Bird!
+
+    flappyBirds(flappyClick); // Run flappy birds game
+
+    if (!digitalRead(BUTTON_PIN)) // Button pressed
+    {
+      flappyClick = true;
+    }
+    else // Button released
+    {
+      flappyClick = false;
+      lastClick = millis();
+    }
+
+    if (millis() - lastClick > Duration_long) // Back, if pressed long
+    {
+      Menu = Flappy_Birds_Auswahl;
+      SetupMenu = false;
     }
     break;
 
