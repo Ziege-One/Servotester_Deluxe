@@ -30,7 +30,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.12.0"; // Software revision.
+char codeVersion[] = "0.13.0"; // Software revision.
 
 //
 // =======================================================================================================
@@ -77,6 +77,8 @@ ESP32AnalogRead                               0.2.1
 #include <EEPROM.h>  // for non volatile storage
 #include <Esp.h>     // for displaying memory information
 #include "rom/rtc.h" // for displaying reset reason
+#include <string>    // std::string, std::stof
+using namespace std;
 
 // Project specific includes
 #if not defined ALTERNATIVE_LOGO
@@ -121,7 +123,7 @@ ESP32Encoder encoder;
 #define BUTTON_PIN 15         // Hardware Pin Button
 #define ENCODER_PIN_1 16      // Hardware Pin1 Encoder
 #define ENCODER_PIN_2 17      // Hardware Pin2 Encoder
-long prev = 0;                // Zeitspeicher für Taster
+long prev1 = 0;               // Zeitspeicher für Taster
 long prev2 = 0;               // Zeitspeicher für Taster
 long previousDebouncTime = 0; // Speicher Entprellzeit für Taster
 int buttonState = 0;          // 0 = Taster nicht betätigt; 1 = Taster langer Druck; 2 = Taster kurzer Druck; 3 = Taster Doppelklick
@@ -160,12 +162,13 @@ float batteryChargePercentage; // Akkuspannung in Prozent
 
 // Menüstruktur
 /*
- * 1 = Servotester_Auswahl       Auswahl -> 10 Servotester_Menu
- * 2 = Automatik_Modus_Auswahl   Auswahl -> 20 Automatik_Modus_Menu
- * 3 = Impuls_lesen_Auswahl      Auswahl -> 30 Impuls_lesen_Menu
- * 4 = Multiswitch_lesen_Auswahl Auswahl -> 40 Multiswitch_lesen_Menu
- * 5 = SBUS_lesen_Auswahl        Auswahl -> 50 SBUS_lesen_Menu
- * 6 = Einstellung_Auswahl       Auswahl -> 60 Einstellung_Menu
+ * 1 = Servotester_Auswahl       Auswahl -> 51 Servotester_Menu
+ * 2 = Automatik_Modus_Auswahl   Auswahl -> 52 Automatik_Modus_Menu
+ * 3 = Impuls_lesen_Auswahl      Auswahl -> 53 Impuls_lesen_Menu
+ * 4 = Multiswitch_lesen_Auswahl Auswahl -> 54 Multiswitch_lesen_Menu
+ * 5 = SBUS_lesen_Auswahl        Auswahl -> 55 SBUS_lesen_Menu
+ * 6 = Einstellung_Auswahl       Auswahl -> 56 Einstellung_Menu
+ * etc.
  */
 enum
 {
@@ -175,33 +178,34 @@ enum
   Multiswitch_lesen_Auswahl = 4,
   SBUS_lesen_Auswahl = 5,
   IBUS_lesen_Auswahl = 6,
-  Pong_Auswahl = 7,
-  Flappy_Birds_Auswahl = 8,
-  Einstellung_Auswahl = 9,
+  Rechner_Auswahl = 7,
+  Pong_Auswahl = 8,
+  Flappy_Birds_Auswahl = 9,
+  Einstellung_Auswahl = 10,
   //
-  Servotester_Menu = 10,
-  Automatik_Modus_Menu = 20,
-  Impuls_lesen_Menu = 30,
-  Multiswitch_lesen_Menu = 40,
-  SBUS_lesen_Menu = 50,
-  IBUS_lesen_Menu = 60,
-  Flappy_Birds_Menu = 70,
-  Pong_Menu = 80,
-  Einstellung_Menu = 90
+  Servotester_Menu = 51,
+  Automatik_Modus_Menu = 52,
+  Impuls_lesen_Menu = 53,
+  Multiswitch_lesen_Menu = 54,
+  SBUS_lesen_Menu = 55,
+  IBUS_lesen_Menu = 56,
+  Rechner_Menu = 57,
+  Flappy_Birds_Menu = 58,
+  Pong_Menu = 59,
+  Einstellung_Menu = 60
 };
 
-//-Menu 20 Automatik Modus
+//-Menu 52 Automatik Modus
 int Autopos[5];      // Speicher
 bool Auto_Pause = 0; // Pause im Auto Modus
 
-//-Menu 40 Multiwitch Futaba lesen
-
-#define kanaele 9    // Anzahl der Kanäle
-int value1[kanaele]; // Speicher
-
-//-Menu 30 Impuls lesen
+//-Menu 53 Impuls lesen
 int Impuls_min = 1000;
 int Impuls_max = 2000;
+
+//-Menu 54 Multiwitch Futaba lesen
+#define kanaele 9    // Anzahl der Multiswitch Kanäle
+int value1[kanaele]; // Speicher Multiswitch Werte
 
 //-Menu
 int Menu = Servotester_Auswahl; // Aktives Menu
@@ -221,6 +225,7 @@ SH1106Wire display(0x3c, SDA, SCL); // Oled Hardware an SDA 21 und SCL 22
 
 #include "src/pong.h"        // A little pong game :-)
 #include "src/flappyBirds.h" // A little flappy birds game :-)
+#include "src/calculator.h"  // A handy calculator
 
 // Webserver auf Port 80
 WiFiServer server(80);
@@ -260,7 +265,7 @@ float map_float(float x, float in_min, float in_max, float out_min, float out_ma
 // Convert µs to degrees (°)
 float us2degree(uint16_t value)
 {
-  return (value - 500) / 11.111 - 90.0;
+  return map_float(float(value), float(SERVO_MIN), float(SERVO_MAX), -45.0, 45.0);
 }
 
 //
@@ -310,11 +315,14 @@ void setup()
   // Setup OLED
   display.init();
   display.flipScreenVertically();
+
+  // Show logo
   display.setFont(ArialMT_Plain_10);
   display.drawXbm(0, 0, Logo_width, Logo_height, Logo_bits);
   display.display();
   delay(1500);
 
+  // Show manual
   display.clear();
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   display.setFont(ArialMT_Plain_10);
@@ -324,7 +332,7 @@ void setup()
   display.drawString(0, 36, doubleclickString[LANGUAGE]);
   display.drawString(0, 48, RotateKnobString[LANGUAGE]);
   display.display();
-  delay(5000);
+  delay(4000);
 
   if (WIFI_ON == 1)
   { // Wifi Ein
@@ -336,6 +344,7 @@ void setup()
     Serial.print(apIpAddressString[LANGUAGE]);
     Serial.println(IP);
 
+// Show IP address
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_LEFT);
     display.setFont(ArialMT_Plain_16);
@@ -343,17 +352,18 @@ void setup()
     display.drawString(0, 26, ipAddressString[LANGUAGE]);
     display.drawString(0, 42, IP.toString());
     display.display();
-    delay(2000);
+    delay(1500);
 
+// Show SSID & Password
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.setFont(ArialMT_Plain_16); // was 16 size
+    display.setFont(ArialMT_Plain_16);
     display.drawString(0, 0, "SSID: ");
     display.drawString(0, 16, ssid);
     display.drawString(0, 32, passwordString[LANGUAGE]);
     display.drawString(0, 48, password);
     display.display();
-    delay(2500);
+    delay(2000);
 
     Serial.printf("\nWiFi Tx Power Level: %u", WiFi.getTxPower());
     WiFi.setTxPower(cpType); // WiFi and ESP-Now power according to "0_generalSettings.h"
@@ -374,7 +384,7 @@ void setup()
     display.drawString(0, 10, "WiFi");
     display.drawString(0, 26, offString[LANGUAGE]);
     display.display();
-    delay(2000);
+    delay(1500);
   }
 
   display.clear();
@@ -406,9 +416,9 @@ void ButtonRead()
     if (!(digitalRead(BUTTON_PIN)))
     {                  // Button gedrückt 0
       delay(bouncing); // Taster entprellen
-      prev = millis();
+      prev1 = millis();
       buttonState = 1;
-      while ((millis() - prev) <= Duration_long)
+      while ((millis() - prev1) <= Duration_long)
       {
         if (digitalRead(BUTTON_PIN))
         {                  // Button losgelassen 1 innerhalb Zeit
@@ -552,7 +562,7 @@ void MenuUpdate()
 
     if (encoderState == 1)
     {
-      Menu = 1;
+      Menu = Servotester_Auswahl;
     }
     if (encoderState == 2)
     {
@@ -695,6 +705,33 @@ void MenuUpdate()
     }
     break;
 
+    // Rechner Auswahl *********************************************************
+  case Rechner_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu >");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, calculatorString[LANGUAGE]);
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(64, 45, "No Warranty Edition");
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu++;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = Rechner_Menu;
+    }
+    break;
+
     // Pong Auswahl *********************************************************
   case Pong_Auswahl:
     display.clear();
@@ -791,8 +828,6 @@ void MenuUpdate()
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
     display.drawString(64, 0, "Servo" + String(selectedServo + 1));
-    // display.drawString(64, 25, String(servo_pos[selectedServo]) + "°");
-    // display.drawProgressBar(8, 50, 112, 10, ((servo_pos[selectedServo]*100)/180));
     display.drawString(64, 25, String(servo_pos[selectedServo]) + "µs");
     display.drawProgressBar(8, 50, 112, 10, (((servo_pos[selectedServo] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)));
     display.display();
@@ -804,6 +839,10 @@ void MenuUpdate()
       servo[3].attach(servopin[3], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
       servo[4].attach(servopin[4], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
       servo[0].setPeriodHertz(SERVO_Hz);
+      servo[1].setPeriodHertz(SERVO_Hz);
+      servo[2].setPeriodHertz(SERVO_Hz);
+      servo[3].setPeriodHertz(SERVO_Hz);
+      servo[4].setPeriodHertz(SERVO_Hz);
       SetupMenu = true;
     }
 
@@ -898,8 +937,13 @@ void MenuUpdate()
       servo[2].attach(servopin[2], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
       servo[3].attach(servopin[3], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
       servo[4].attach(servopin[4], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
-      TimeAuto = 50;                                      // Zeit für SERVO Steps +-
-      Auto_Pause = false;                                 // Pause aus
+      servo[0].setPeriodHertz(SERVO_Hz);
+      servo[1].setPeriodHertz(SERVO_Hz);
+      servo[2].setPeriodHertz(SERVO_Hz);
+      servo[3].setPeriodHertz(SERVO_Hz);
+      servo[4].setPeriodHertz(SERVO_Hz);
+      TimeAuto = 50;      // Zeit für SERVO Steps +-
+      Auto_Pause = false; // Pause aus
       SetupMenu = true;
     }
 
@@ -909,7 +953,7 @@ void MenuUpdate()
       if ((currentTimeAuto - previousTimeAuto) > TimeAuto)
       {
         previousTimeAuto = currentTimeAuto;
-        if (Autopos[selectedServo] > 1500)
+        if (Autopos[selectedServo] > ((SERVO_MIN + SERVO_MAX) / 2))
         {
           servo_pos[selectedServo] = servo_pos[selectedServo] + SERVO_STEPS;
         }
@@ -1003,13 +1047,7 @@ void MenuUpdate()
 
   // PWM Impuls lesen *********************************************************
   case Impuls_lesen_Menu:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, impulseString[LANGUAGE] + String(selectedServo + 1));
-    display.drawString(64, 25, String(servo_pos[selectedServo]) + "µs");
-    display.drawProgressBar(8, 50, 112, 10, (((servo_pos[selectedServo] - Impuls_min) * 100) / (Impuls_max - Impuls_min)));
-    display.display();
+
     if (!SetupMenu)
     {
       pinMode(servopin[0], INPUT);
@@ -1019,9 +1057,10 @@ void MenuUpdate()
       pinMode(servopin[4], INPUT);
       SetupMenu = true;
     }
+
     servo_pos[selectedServo] = pulseIn(servopin[selectedServo], HIGH, 50000);
 
-    if (servo_pos[selectedServo] < Impuls_min)
+    if (servo_pos[selectedServo] < Impuls_min && servo_pos[selectedServo] > 500)
     {
       Impuls_min = servo_pos[selectedServo];
     }
@@ -1029,6 +1068,16 @@ void MenuUpdate()
     {
       Impuls_max = servo_pos[selectedServo];
     }
+
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, impulseString[LANGUAGE] + String(selectedServo + 1));
+    display.drawString(64, 25, String(servo_pos[selectedServo]) + "µs");
+    if (servo_pos[selectedServo] < 1000)
+      servo_pos[selectedServo] = 1000; // Make sure, that progressbar always is within range
+    display.drawProgressBar(8, 50, 112, 10, (((servo_pos[selectedServo] - Impuls_min) * 100) / (Impuls_max - Impuls_min)));
+    display.display();
 
     if (encoderState == 1)
     {
@@ -1217,13 +1266,59 @@ void MenuUpdate()
     }
     break;
 
+    // Rechner *********************************************************
+  case Rechner_Menu:
+
+    static bool calculatorLeft;
+    static bool calculatorRight;
+    static bool calculatorSelect;
+    calculator(calculatorLeft, calculatorRight, calculatorSelect); // Run calculator
+
+    if (!SetupMenu) // This stuff is only executed once
+    {
+
+      SetupMenu = true;
+    }
+
+    if (encoderState == 1) // Left
+    {
+      calculatorLeft = true;
+      calculatorRight = false;
+    }
+    else if (encoderState == 2) // Right
+    {
+      calculatorRight = true;
+      calculatorLeft = false;
+    }
+    else // Cursor stop
+    {
+      calculatorLeft = false;
+      calculatorRight = false;
+    }
+
+    if (buttonState == 1) // Back
+    {
+      Menu = Rechner_Auswahl;
+      SetupMenu = false;
+    }
+
+    if (buttonState == 2) // Select
+    {
+      calculatorSelect = true;
+    }
+    else
+    {
+      calculatorSelect = false;
+    }
+    break;
+
     // Pong spielen *********************************************************
   case Pong_Menu:
 
     static bool paddleUp;
     static bool paddleDown;
-    static bool reset;
-    pong(paddleUp, paddleDown, reset, encoderSpeed); // Run pong game
+    static bool pongReset;
+    pong(paddleUp, paddleDown, pongReset, encoderSpeed); // Run pong game
 
     if (!SetupMenu) // This stuff is only executed once
     {
@@ -1255,11 +1350,11 @@ void MenuUpdate()
 
     if (buttonState == 2) // Reset
     {
-      reset = true;
+      pongReset = true;
     }
     else
     {
-      reset = false;
+      pongReset = false;
     }
     break;
 
@@ -1329,6 +1424,14 @@ void MenuUpdate()
     case 5:
       display.drawString(64, 25, servoHzString[LANGUAGE]);
       display.drawString(64, 45, String(SERVO_Hz));
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(0, 27, "µs");
+      display.drawString(0, 37, String(SERVO_MIN));
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(128, 27, "µs");
+      display.drawString(128, 37, String(SERVO_MAX));
+
       break;
     case 6:
       display.drawString(64, 25, PowerScaleString[LANGUAGE]);
@@ -1372,7 +1475,7 @@ void MenuUpdate()
     }
     if (Edit)
     {
-      display.drawString(10, 45, "->");
+      display.drawString(10, 50, "->");
     }
     display.display();
 
@@ -1536,9 +1639,14 @@ void MenuUpdate()
       WIFI_ON = 1;
     }
 
-    if (SERVO_STEPS < 0)
+    if (SERVO_STEPS < 1)
     { // Steps nicht unter 0
-      SERVO_STEPS = 0;
+      SERVO_STEPS = 1;
+    }
+
+    if (SERVO_STEPS > 50)
+    { // Steps nicht über 50
+      SERVO_STEPS = 50;
     }
 
     if (SERVO_MAX < SERVO_Mitte)
@@ -1571,65 +1679,46 @@ void MenuUpdate()
       SERVO_Mitte = SERVO_MIN + 1;
     }
 
-    if (SERVO_Hz == 51)
+    // Servo frequency and corresponding microseconds range -------
+    if (SERVO_Hz <= 49)
+      SERVO_Hz = 50; // Min. limit
+
+    if (SERVO_Hz == 199)
     {
-      SERVO_Hz = 200;
+      SERVO_Hz = 50; // 50 Hz ****
+      SERVO_MAX = 2000;
+      SERVO_MIN = 1000;
+      SERVO_Mitte = 1500;
     }
 
-    if (SERVO_Hz == 201)
+    if (SERVO_Hz == 51 || SERVO_Hz == 332)
     {
-      SERVO_Hz = 333;
+      SERVO_Hz = 200; // 200 Hz ****
+      SERVO_MAX = 2000;
+      SERVO_MIN = 1000;
+      SERVO_Mitte = 1500;
+    }
+
+    if (SERVO_Hz == 201 || SERVO_Hz == 559)
+    {
+      SERVO_Hz = 333; // 333 Hz ****
+      SERVO_MAX = 2000;
+      SERVO_MIN = 1000;
+      SERVO_Mitte = 1500;
     }
 
     if (SERVO_Hz == 334)
     {
-      SERVO_Hz = 560;
+      SERVO_Hz = 560; // 560 Hz ****
       SERVO_MAX = 1000;
       SERVO_MIN = 500;
-      SERVO_Mitte = 760;
+      SERVO_Mitte = 750;
     }
 
-    if (SERVO_Hz == 561)
-    {
-      SERVO_Hz = 50;
-      SERVO_MAX = 2000;
-      SERVO_MIN = 1000;
-      SERVO_Mitte = 1500;
-    }
+    if (SERVO_Hz >= 561)
+      SERVO_Hz = 560; // Max. limit
 
-    if (SERVO_Hz == 49)
-    {
-      SERVO_Hz = 560;
-      SERVO_MAX = 1000;
-      SERVO_MIN = 500;
-      SERVO_Mitte = 760;
-    }
-
-    if (SERVO_Hz == 559)
-    {
-      SERVO_Hz = 333;
-      SERVO_MAX = 2000;
-      SERVO_MIN = 1000;
-      SERVO_Mitte = 1500;
-    }
-
-    if (SERVO_Hz == 332)
-    {
-      SERVO_Hz = 200;
-    }
-
-    if (SERVO_Hz == 199)
-    {
-      SERVO_Hz = 50;
-    }
-
-    if (SERVO_Hz == 560)
-    {
-      SERVO_MAX = 1000;
-      SERVO_MIN = 500;
-      SERVO_Mitte = 760;
-    }
-
+    // Buttons -----------
     if (buttonState == 1)
     {
       Menu = Einstellung_Auswahl;

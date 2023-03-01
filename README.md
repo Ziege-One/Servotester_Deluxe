@@ -25,6 +25,15 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 
 ## Changelog
 
+## New in v0.13.0:
+- Servo Hz setting effective on all servo channels and in automatic mode
+- Bug fixed: Automatic mode not working in 560 Hz mode
+- Bug fixed: Servo angle wrong in 560 Hz mode
+- Bug fixed: progress bar out of range in impulse read mode
+- Cleaned up frequency selection code
+- Microseconds servo range is now displayed in the servo frequency settings menu
+- A little calculator was added
+
 ## New in v0.12.0:
 - Added a Flappy Birds Game
 - Alternative logo optimized

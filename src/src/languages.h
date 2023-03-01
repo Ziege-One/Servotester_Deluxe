@@ -26,6 +26,9 @@ String impulseString[] {"Impulse", "Impuls", "Impulsion"};
 // Automatik
 String delayString[] {"Delay", "Verz.", "Ret."};
 
+// Rechner
+String calculatorString[] {"Calculator", "Rechner", "Calculateur"};
+
 // Auswahl
 String servotesterString[] {"Servotester", "Servotester", "Testeur de servos"};
 String readIbusString[] {"Read IBUS", "IBUS lesen", "Lire IBUS"};
