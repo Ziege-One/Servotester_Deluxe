@@ -11,7 +11,7 @@
 
 uint8_t PADDLE_DELAY = 15; // 15 Speed of CPU paddle movement
 uint8_t BALL_DELAY = 7;    // 7 Speed of ball movement
-uint8_t FRAME_RATE = 20;  // Refresh display every 20ms = 50Hz
+uint8_t FRAME_RATE = 20;   // Refresh display every 20ms = 50Hz
 
 const uint8_t PADDLE_HEIGHT = 14; // 14
 
@@ -148,14 +148,26 @@ void pong(bool paddleUp, bool paddleDown, bool reset, uint8_t paddleSpeed)
     if (new_x > 54 && new_x < 74)
       center = true;
     if (center && new_x < CPU_X)
+    {
       player_points++, center = false; // Count CPU points
+      beepDuration = 10;
+    }
     if (center && new_x > PLAYER_X)
+    {
       cpu_points++, center = false; // Count Player points
+      beepDuration = 10;
+    }
 
     if (cpu_points - player_points >= game_over_difference)
+    {
       cpu_won = true; // Game over, you lost
+      beepDuration = 300;
+    }
     if (player_points - cpu_points >= game_over_difference)
+    {
       player_won = true; // Game over, you won
+      beepDuration = 300;
+    }
 
     // Check if we hit the vertical walls
     if (new_x == 1 || new_x == 126)

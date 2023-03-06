@@ -13,16 +13,16 @@
 int matrixSize = 11;
 int offsetX = -5; // Keyboard position offset
 int offsetY = 7;
-char buttons[] = {'0', '.', '=', '/', '1', '2', '3', '+', '4', '5', '6', '-', '7', '8', '9', '*', 'C'};
-int mx[] = {11, 22, 33, 44, 11, 22, 33, 44, 11, 22, 33, 44, 11, 22, 33, 44, 55}; // x coordinates
-int my[] = {45, 45, 45, 45, 34, 34, 34, 34, 23, 23, 23, 23, 12, 12, 12, 12, 12}; // y coordinates
+char buttons[] = {'0', '.', '=', '/', '1', '2', '3', '+', '4', '5', '6', '-', '7', '8', '9', '*', '^', 'C'};
+int mx[] = {11, 22, 33, 44, 11, 22, 33, 44, 11, 22, 33, 44, 11, 22, 33, 44, 55, 66}; // x coordinates
+int my[] = {45, 45, 45, 45, 34, 34, 34, 34, 23, 23, 23, 23, 12, 12, 12, 12, 12, 12}; // y coordinates
 
 int ind = 0;
 int pres = 0;
 String line = "";
 String num1 = "";
 String num2 = "";
-int operation = 0;        // 1 = addition, 2 = subtraction, 3 = multiplication, 4 = division
+int operation = 0;        // 1 = addition, 2 = subtraction, 3 = multiplication, 4 = division, 5 = power of
 bool calculated = false;  // Calculation done, clear previous result, if any button pushed
 bool operatorSet = false; // Operator was already set
 
@@ -67,6 +67,12 @@ void calculate()
       operation = 4;
     }
 
+    if (line.charAt(i) == '^')
+    {
+      changeNumber = 1;
+      operation = 5;
+    }
+
     if (changeNumber == 0)
     {
       char letter = line.charAt(i);
@@ -104,13 +110,17 @@ void calculate()
   {
     result = n1 / n2;
   }
+  if (operation == 5)
+  {
+    result = pow(n1, n2);
+  }
 
   Serial.println(n1);
   Serial.println(n2);
   Serial.println(n1 / n2);
   line = "";
-  int tenths = result / 10;
-  float remain = result - (tenths * 10);
+  //int tenths = result / 10;
+  //float remain = result - (tenths * 10);
   line = (String)result;
   changeNumber = 0;
   num1 = "";
@@ -135,11 +145,11 @@ void calculator(bool left, bool right, bool select)
   if (left) // Go to the left
     ind--;
 
-  if (ind > 16) // Range limits
+  if (ind > 17) // Range limits
     ind = 0;
 
   if (ind < 0)
-    ind = 16;
+    ind = 17;
 
   if (select) // Send selected button, if encoder pushed -------------------------------------------
   {
@@ -191,7 +201,7 @@ void calculator(bool left, bool right, bool select)
   display.setTextAlignment(TEXT_ALIGN_LEFT);
 
   // Show button matrix ----------------------------------
-  for (int i = 0; i < 17; i++)
+  for (int i = 0; i < 18; i++) // 18 buttons
   {
     display.drawString(mx[i] + offsetX, my[i] + offsetY, String(buttons[i])); // Show keyboard button matrix
   }

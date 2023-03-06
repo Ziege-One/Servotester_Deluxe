@@ -23,7 +23,32 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 ## Menu
 ![](documentation/pictures/menu.png)
 
+## TODO Software ****************************************
+- remove PPM menu delay
+- clean up servo timing function
+- remove servo library remainings
+- Menu: Add beep on / off & servo stroke, remove servo stuff except frequency
+- Add servo output in signal read mode
+- Add frequency measuring for PWM input
+
+## TODO Hardware ****************************************
+- Capacitor for 5V rail
+- Capacitor for smooth upload
+- Anti backfeed diode with jumper
+- Room for buzzer
+- separate connector for BUS inputs
+- Connector for gyro sensor
+
+## ******************************************************
+
 ## Changelog
+
+## New in v0.14-beta.0:
+- Added support for active 3V buzzer on GPIO 4
+- Calculator: added power of
+- Servo operation mode names are displayed, if known
+- ESP32Servo removed, repaced with native MCPWM ESP32 functionality. Allows way faster servo timings
+- A lot of new servo modes added, more servo info on screen
 
 ## New in v0.13.0:
 - Servo Hz setting effective on all servo channels and in automatic mode

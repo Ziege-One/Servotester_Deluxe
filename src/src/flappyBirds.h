@@ -51,12 +51,12 @@ void gameInit()
 // Game over sub function
 void gameOver()
 {
+  beepDuration = 300;
   game = false;
   birdY = 22;
   score = 0;
   birdDirection = 0;
   display.clear();
-  // buzzer = true;
   gameInit();
 }
 
@@ -87,8 +87,9 @@ void flappyBirds(bool buttonInput)
 
     if (DRE(buttonInput, button1RisingState)) // We need to detect a rising edge here!
     {
-      gameInit(); // Init game
+      gameInit();  // Init game
       game = true; // Start game
+      beepDuration = 10;
     }
   }
 
@@ -100,6 +101,11 @@ void flappyBirds(bool buttonInput)
     {
       buttonPressedMillis = millis();
       birdDirection = 1; // Bird upwards
+    }
+
+    if (DRE(buttonInput, button1RisingState)) // We need to detect a rising edge here!
+    {
+      beepDuration = 10;
     }
 
     for (int j = 0; j < 4; j++)
