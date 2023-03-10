@@ -19,11 +19,11 @@
  /////Pin Belegung////
  GPIO 4: active piezo buzzer
 
- GPIO 13: Servo1 & BUS Input
+ GPIO 13: Servo1
  GPIO 14: Servo2
  GPIO 27: Servo3
  GPIO 33: Servo4
- GPIO 32: Servo5
+ GPIO 32: Servo5 & BUS Input
  GPIO 15: Ecoder Taster
  GPIO 16: Ecoder Richtung 1
  GPIO 17: Ecoder Richtung 2
@@ -32,7 +32,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.14-beta.0"; // Software revision.
+char codeVersion[] = "0.14-beta.1"; // Software revision.
 
 //
 // =======================================================================================================
@@ -59,20 +59,19 @@ ESP32                                         2.0.5 or 2.0.6 <<--- (make sure yo
  */
 
 /* Required Libraries / Benötigte Bibliotheken
-ESP32Servo                                    0.12.1
 ESP32Encoder                                  0.10.1
-SBUS                                          internal, no library required anymore
 IBusBM                                        1.1.5
 ESP8266 and ESP OLED driver SSD1306 displays  4.3.0
 ESP32AnalogRead                               0.2.1
+Array                                         1.0.0
  */
 
-// #include <ESP32Servo.h>      // https://github.com/madhephaestus/ESP32Servo/archive/refs/tags/0.12.1.tar.gz
+#include <ESP32AnalogRead.h> // https://github.com/madhephaestus/ESP32AnalogRead <<------- required for calibrated battery voltage measurement
 #include <ESP32Encoder.h>    // https://github.com/madhephaestus/ESP32Encoder/archive/refs/tags/0.10.1.tar.gz
 #include <IBusBM.h>          // https://github.com/bmellink/IBusBM/archive/refs/tags/v1.1.5.tar.gz
 #include <SH1106Wire.h>      //1.3"
 #include <SSD1306Wire.h>     //0.96" https://github.com/ThingPulse/esp8266-oled-ssd1306/archive/refs/tags/4.3.0.tar.gz
-#include <ESP32AnalogRead.h> // https://github.com/madhephaestus/ESP32AnalogRead <<------- required for calibrated battery voltage measurement
+#include <Array.h>           //https://github.com/TheDIYGuy999/arduino-array
 
 // No need to install these, they come with the ESP32 board definition
 #include <WiFi.h>
@@ -158,21 +157,23 @@ String servoMode = ""; // Servo operation mode text
 // Servo operation modes
 enum
 {
-  STD, // NOR = 100Hz  1000 - 1500 - 2000µs = normal = für die meisten analogen Servos
-  NOR, // SHR = 333Hz  1000 - 1500 - 2000µs = Sanwa High-Response = für alle Digitalservos
-  SHR, // SSR = 384Hz   130 -  300 - 470µs  = Sanwa Super Response = nur für Sanwa Servos der SRG-Linie
-  SSR, // SSL = 560Hz   500 -  750 - 1000µs
-  SSL, // SSL = 560Hz   500 -  750 - 1000µs
-  SUR, // SUR = 760Hz   130 -  300 - 470µs
-  SXR  // SXR = 1520Hz  130 -  300 - 470µs
+  STD, // Std = 50Hz   1000 - 1500 - 2000µs = gemäss ursprünglichem Standard
+  NOR, // NOR = 100Hz  1000 - 1500 - 2000µs = normal = für die meisten analogen Servos
+  SHR, // SHR = 333Hz  1000 - 1500 - 2000µs = Sanwa High-Response = für alle Digitalservos
+  SSR, // SSR = 400Hz   130 -  300 - 470µs  = Sanwa Super Response = nur für Sanwa Servos der SRG-Linie
+  SUR, // SUR = 800Hz   130 -  300 - 470µs  = Sanwa Ultra Response
+  SXR  // SXR = 1600Hz  130 -  300 - 470µs  = Sanwa Xtreme Response
 };
 
 // Sound
 #define BUZZER_PIN 4 // Active 3V buzzer
 int beepDuration;    // how long the beep will be
 
+// Oscilloscope pin
+#define OSCILLOSCOPE_PIN 32 // ADC channel 2 only!
+
 // Serial command pins for SBUS, IBUS -----
-#define COMMAND_RX 13 // pin 13
+#define COMMAND_RX 32 // pin 13
 #define COMMAND_TX -1 // -1 is just a dummy
 
 // SBUS
@@ -183,7 +184,7 @@ std::array<int16_t, bfs::SbusRx::NUM_CH()> SBUSchannels;
 IBusBM IBus; // IBus object
 
 // Externe Spannungsversorgung
-#define BATTERY_DETECT_PIN 36  // Hardware Pin Externe Spannung in
+#define BATTERY_DETECT_PIN 36  // Hardware Pin Externe Spannung in. ADC channel 2 only!
 bool batteryDetected;          // Akku vorhanden
 int numberOfBatteryCells;      // Akkuzellen
 float batteryVoltage;          // Akkuspannung in V
@@ -207,10 +208,11 @@ enum
   Multiswitch_lesen_Auswahl = 4,
   SBUS_lesen_Auswahl = 5,
   IBUS_lesen_Auswahl = 6,
-  Rechner_Auswahl = 7,
-  Pong_Auswahl = 8,
-  Flappy_Birds_Auswahl = 9,
-  Einstellung_Auswahl = 10,
+  Oscilloscope_Auswahl = 7,
+  Rechner_Auswahl = 8,
+  Pong_Auswahl = 9,
+  Flappy_Birds_Auswahl = 10,
+  Einstellung_Auswahl = 11,
   //
   Servotester_Menu = 51,
   Automatik_Modus_Menu = 52,
@@ -218,10 +220,11 @@ enum
   Multiswitch_lesen_Menu = 54,
   SBUS_lesen_Menu = 55,
   IBUS_lesen_Menu = 56,
-  Rechner_Menu = 57,
-  Flappy_Birds_Menu = 58,
-  Pong_Menu = 59,
-  Einstellung_Menu = 60
+  Oscilloscope_Menu = 57,
+  Rechner_Menu = 58,
+  Flappy_Birds_Menu = 59,
+  Pong_Menu = 60,
+  Einstellung_Menu = 61
 };
 
 //-Menu 52 Automatik Modus
@@ -327,6 +330,7 @@ unsigned long loopDuration()
 #include "src/calculator.h"   // A handy calculator
 #include "src/webInterface.h" // Configuration website
 #include "src/servoModes.h"   // Servo operation profiles
+#include "src/oscilloscope.h" // A handy oscilloscope
 
 //
 // =======================================================================================================
@@ -386,7 +390,7 @@ void setup()
   // Print some system and software info to serial monitor
   delay(1000); // Give serial port/connection some time to get ready
   Serial.printf("\n**************************************************************************************************\n");
-  Serial.printf("Sevotester Deluxe für ESP32 software version %s\n", codeVersion);
+  Serial.printf("Sevotester Deluxe for ESP32 software version %s\n", codeVersion);
   Serial.printf("Original version: https://github.com/Ziege-One/Servotester_Deluxe\n");
   Serial.printf("Modified version: https://github.com/TheDIYGuy999/Servotester_Deluxe\n");
   Serial.printf("XTAL Frequency: %i MHz, CPU Clock: %i MHz, APB Bus Clock: %i Hz\n", getXtalFrequencyMhz(), getCpuFrequencyMhz(), getApbFrequency());
@@ -759,7 +763,7 @@ void MenuUpdate()
     display.drawString(64, 0, "< Menu >");
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25, "PPM Multiswitch");
-    display.drawString(64, 45, readCh1String[LANGUAGE]);
+    display.drawString(64, 45, readCh5String[LANGUAGE]);
     display.display();
 
     if (encoderState == 1)
@@ -785,7 +789,7 @@ void MenuUpdate()
     display.drawString(64, 0, "< Menu >");
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25, readSbusString[LANGUAGE]);
-    display.drawString(64, 45, "CH1");
+    display.drawString(64, 45, "CH5");
     display.display();
 
     if (encoderState == 1)
@@ -811,7 +815,7 @@ void MenuUpdate()
     display.drawString(64, 0, "< Menu >");
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25, readIbusString[LANGUAGE]);
-    display.drawString(64, 45, "CH1");
+    display.drawString(64, 45, "CH5");
     display.display();
 
     if (encoderState == 1)
@@ -826,6 +830,33 @@ void MenuUpdate()
     if (buttonState == 2)
     {
       Menu = IBUS_lesen_Menu;
+    }
+    break;
+
+    // Oszilloskop Auswahl *********************************************************
+  case Oscilloscope_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu >");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, readOscilloscopeString[LANGUAGE]);
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(64, 45, readOscilloscopeString2[LANGUAGE]);
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu++;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = Oscilloscope_Menu;
     }
     break;
 
@@ -934,6 +965,7 @@ void MenuUpdate()
     if (buttonState == 2)
     {
       Menu = Einstellung_Menu;
+      Einstellung = 5; // Pre select Servo frequency setting
     }
     break;
 
@@ -958,18 +990,6 @@ void MenuUpdate()
     display.display();
     if (!SetupMenu)
     {
-      /*
-      servo[0].attach(servopin[0], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
-      servo[1].attach(servopin[1], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
-      servo[2].attach(servopin[2], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
-      servo[3].attach(servopin[3], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
-      servo[4].attach(servopin[4], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
-      servo[0].setPeriodHertz(SERVO_Hz);
-      servo[1].setPeriodHertz(SERVO_Hz);
-      servo[2].setPeriodHertz(SERVO_Hz);
-      servo[3].setPeriodHertz(SERVO_Hz);
-      servo[4].setPeriodHertz(SERVO_Hz);
-      */
       servo_pos[0] = SERVO_CENTER;
       servo_pos[1] = SERVO_CENTER;
       servo_pos[2] = SERVO_CENTER;
@@ -978,13 +998,6 @@ void MenuUpdate()
       setupMcpwm();
       SetupMenu = true;
     }
-    /*
-        servo[0].writeMicroseconds(servo_pos[0]);
-        servo[1].writeMicroseconds(servo_pos[1]);
-        servo[2].writeMicroseconds(servo_pos[2]);
-        servo[3].writeMicroseconds(servo_pos[3]);
-        servo[4].writeMicroseconds(servo_pos[4]);
-        */
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, servo_pos[0]);
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, servo_pos[1]);
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_1, MCPWM_OPR_A, servo_pos[2]);
@@ -1013,13 +1026,6 @@ void MenuUpdate()
     {
       Menu = Servotester_Auswahl;
       SetupMenu = false;
-      /*
-      servo[0].detach();
-      servo[1].detach();
-      servo[2].detach();
-      servo[3].detach();
-      servo[4].detach();
-      */
       selectedServo = 0;
     }
 
@@ -1075,18 +1081,6 @@ void MenuUpdate()
 
     if (!SetupMenu)
     {
-      /*
-      servo[0].attach(servopin[0], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
-      servo[1].attach(servopin[1], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
-      servo[2].attach(servopin[2], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
-      servo[3].attach(servopin[3], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
-      servo[4].attach(servopin[4], SERVO_MIN, SERVO_MAX); // ServoPIN, MIN, MAX
-      servo[0].setPeriodHertz(SERVO_Hz);
-      servo[1].setPeriodHertz(SERVO_Hz);
-      servo[2].setPeriodHertz(SERVO_Hz);
-      servo[3].setPeriodHertz(SERVO_Hz);
-      servo[4].setPeriodHertz(SERVO_Hz);
-      */
       servo_pos[0] = SERVO_CENTER;
       servo_pos[1] = SERVO_CENTER;
       servo_pos[2] = SERVO_CENTER;
@@ -1112,7 +1106,6 @@ void MenuUpdate()
         {
           servo_pos[selectedServo] = servo_pos[selectedServo] - SERVO_STEPS;
         }
-        // servo[selectedServo].writeMicroseconds(servo_pos[selectedServo]);
         mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, servo_pos[0]);
         mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, servo_pos[1]);
         mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_1, MCPWM_OPR_A, servo_pos[2]);
@@ -1177,13 +1170,6 @@ void MenuUpdate()
     {
       Menu = Automatik_Modus_Auswahl;
       SetupMenu = false;
-      /*
-      servo[0].detach();
-      servo[1].detach();
-      servo[2].detach();
-      servo[3].detach();
-      servo[4].detach();
-      */
       selectedServo = 0;
     }
 
@@ -1218,7 +1204,7 @@ void MenuUpdate()
 
     servo_pos[selectedServo] = pulseIn(servopin[selectedServo], HIGH, 50000);
 
-    if (servo_pos[selectedServo] < Impuls_min && servo_pos[selectedServo] > 500)
+    if (servo_pos[selectedServo] < Impuls_min && servo_pos[selectedServo] > 100)
     {
       Impuls_min = servo_pos[selectedServo];
     }
@@ -1294,7 +1280,7 @@ void MenuUpdate()
 
     if (!SetupMenu)
     {
-      pinMode(servopin[0], INPUT);
+      pinMode(servopin[4], INPUT);
       SetupMenu = true;
     }
 
@@ -1302,12 +1288,12 @@ void MenuUpdate()
 
     while (value1[8] > 1000) // Wait for the beginning of the frame (1000)
     {
-      value1[8] = pulseIn(servopin[0], HIGH, 50000);
+      value1[8] = pulseIn(servopin[4], HIGH, 50000);
     }
 
     for (int x = 0; x <= kanaele - 1; x++) // Loop to store all the channel positions
     {
-      value1[x] = pulseIn(servopin[0], HIGH, 50000);
+      value1[x] = pulseIn(servopin[4], HIGH, 50000);
     }
 
     if (buttonState == 1)
@@ -1359,21 +1345,10 @@ void MenuUpdate()
     display.drawString(128, 45, String(map(SBUSchannels[15], 172, 1811, 1000, 2000)));
     display.display();
 
-    if (encoderState == 1)
-    {
-    }
-    if (encoderState == 2)
-    {
-    }
-
     if (buttonState == 1)
     {
       Menu = SBUS_lesen_Auswahl;
       SetupMenu = false;
-    }
-
-    if (buttonState == 2)
-    {
     }
     break;
 
@@ -1410,27 +1385,39 @@ void MenuUpdate()
       pinMode(servopin[2], INPUT);
       pinMode(servopin[3], INPUT);
       pinMode(servopin[4], INPUT);
-      IBus.begin(Serial2, IBUSBM_NOTIMER, COMMAND_RX, COMMAND_RX); // iBUS object connected to serial2 RX2 pin and use timer 1
+      IBus.begin(Serial2, IBUSBM_NOTIMER, COMMAND_RX, COMMAND_TX); // iBUS object connected to serial2 RX2 pin and use timer 1
       SetupMenu = true;
     }
 
     IBus.loop(); // call internal loop function to update the communication to the receiver
-
-    if (encoderState == 1)
-    {
-    }
-    if (encoderState == 2)
-    {
-    }
 
     if (buttonState == 1)
     {
       Menu = IBUS_lesen_Auswahl;
       SetupMenu = false;
     }
+    break;
 
-    if (buttonState == 2)
+    // Oszilloskop *********************************************************
+  case Oscilloscope_Menu:
+
+    if (!SetupMenu) // This stuff is only executed once
     {
+      pinMode(servopin[0], INPUT);
+      pinMode(servopin[1], INPUT);
+      pinMode(servopin[2], INPUT);
+      pinMode(servopin[3], INPUT);
+      pinMode(servopin[4], INPUT);
+      pinMode(OSCILLOSCOPE_PIN, INPUT);
+      SetupMenu = true;
+    }
+
+    oscilloscopeLoop(); // Loop oscilloscope code
+
+    if (buttonState == 1) // Back
+    {
+      Menu = Oscilloscope_Auswahl;
+      SetupMenu = false;
     }
     break;
 

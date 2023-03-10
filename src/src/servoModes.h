@@ -13,10 +13,9 @@ void servoModes()
   // Std = 50Hz   1000 - 1500 - 2000µs = gemäss ursprünglichem Standard
   // NOR = 100Hz  1000 - 1500 - 2000µs = normal = für die meisten analogen Servos
   // SHR = 333Hz  1000 - 1500 - 2000µs = Sanwa High-Response = für alle Digitalservos
-  // SSR = 384Hz   130 -  300 - 470µs  = Sanwa Super Response = nur für Sanwa Servos der SRG-Linie
-  // SSL = 560Hz   500 -  750 - 1000µs
-  // SUR = 760Hz   130 -  300 - 470µs
-  // SXR = 1520Hz  130 -  300 - 470µs
+  // SSR = 400Hz   130 -  300 - 470µs  = Sanwa Super Response = nur für Sanwa Servos der SRG-Linie
+  // SUR = 800Hz   130 -  300 - 470µs  = Sanwa Ultra Response
+  // SXR = 1600Hz  130 -  300 - 470µs  = Sanwa Xtreme Response
 
   if (SERVO_MODE <= STD)
     SERVO_MODE = STD; // Min. limit
@@ -53,7 +52,7 @@ void servoModes()
 
   if (SERVO_MODE == SSR)
   {
-    SERVO_Hz = 384;
+    SERVO_Hz = 400;
     SERVO_MAX = 470;
     SERVO_CENTER = 300;
     SERVO_MIN = 130;
@@ -61,19 +60,9 @@ void servoModes()
     servoMode = "SSR";
   }
 
-  if (SERVO_MODE == SSL)
-  {
-    SERVO_Hz = 560;
-    SERVO_MAX = 1000;
-    SERVO_CENTER = 750;
-    SERVO_MIN = 500;
-
-    servoMode = "SSL";
-  }
-
   if (SERVO_MODE == SUR)
   {
-    SERVO_Hz = 760;
+    SERVO_Hz = 800;
     SERVO_MAX = 470;
     SERVO_CENTER = 300;
     SERVO_MIN = 130;
@@ -83,7 +72,7 @@ void servoModes()
 
   if (SERVO_MODE == SXR)
   {
-    SERVO_Hz = 1520;
+    SERVO_Hz = 1600;
     SERVO_MAX = 470;
     SERVO_CENTER = 300;
     SERVO_MIN = 130;

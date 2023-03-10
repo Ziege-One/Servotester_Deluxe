@@ -33,11 +33,13 @@ String calculatorString[] {"Calculator", "Rechner", "Calculateur"};
 String servotesterString[] {"Servotester", "Servotester", "Testeur de servos"};
 String readIbusString[] {"Read IBUS", "IBUS lesen", "Lire IBUS"};
 String readSbusString[] {"Read SBUS", "SBUS lesen", "Lire SBUS"};
-String readCh1String[] {"read CH1", "lesen CH1", "lire CH1"};
+String readCh5String[] {"read CH5", "lesen CH5", "lire CH5"};
 String readCh1Ch5String[] {"read CH1 - 5", "lesen CH1 - 5", "lire CH1 - 5"};
 String PwmImpulseString[] {"PWM Impulse", "PWM Impuls", "PWM Impulsion"};
 String automaticModeString[] {"Automatic Mode", "Automatik Modus","Mode automat."};
 String oscillateServoString[] {"(Oscillate Servo)", "(Servo pendeln)", "(Osciller Servo)"};
+String readOscilloscopeString[] {"Oscilloscope CH5", "Oszilloskop CH5", "Oscilloscope CH5"};
+String readOscilloscopeString2[] {"0- 3.3V Signals only", "Nur 0 - 3.3V Signale", "Signaux 0 - 3.3V uniquem."};
 
 // Setup
 String passwordString[] {"Password:", "Passwort:", "Mot de passe:"};

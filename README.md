@@ -25,8 +25,7 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 
 ## TODO Software ****************************************
 - remove PPM menu delay
-- clean up servo timing function
-- remove servo library remainings
+- fix PWM read bargraph
 - Menu: Add beep on / off & servo stroke, remove servo stuff except frequency
 - Add servo output in signal read mode
 - Add frequency measuring for PWM input
@@ -42,6 +41,11 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 ## ******************************************************
 
 ## Changelog
+
+## New in v0.14-beta.1:
+- SSL servo mode removed
+- SSR, SUR and SXR frequencies changed, now working with Sanwa PGS-CL II servo
+- BUS & oscilloscope input is on CH 5 now
 
 ## New in v0.14-beta.0:
 - Added support for active 3V buzzer on GPIO 4
