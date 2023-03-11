@@ -23,36 +23,58 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 ## Menu
 ![](documentation/pictures/menu.png)
 
+## Oscilloscope 0 - 3.3V
+![](documentation/pictures/scope.jpg)
+
+![](documentation/pictures/ppm_scope.jpg)
+
+## Calculator
+![](documentation/pictures/scope.jpg)
+
+## Features
+- 5 channel PWM Signal generator for the following modes: STD, NOR, SSR, SUR, SXR
+- manual or automatic movement modes
+- PWM read function with pulsewidth and frequency display
+- PPM, SBUS and IBUS read function
+- Oscilloscope for 3.3V RC signals, PWM and PPM signals can be visualized well
+- Calculator
+- P O N G game
+- Flappy Birds game
+- Settings menu, parameters are stored in EEPROM
+- Operation via rotary encoder with push button
+- Supply via USB (for small servos) or XT-60 plug
+- 0.96 or 1.3 Inch OLED display
+- Some functions can be controlled via the built in website
+
+
 ## TODO Software ****************************************
+- make servo center and endpoints flexible
 - remove PPM menu delay
-- fix PWM read bargraph
 - Menu: Add beep on / off & servo stroke, remove servo stuff except frequency
-- Add servo output in signal read mode
-- Add frequency measuring for PWM input
+- Add servo output in signal read mode (decoder)
 
 ## TODO Hardware ****************************************
 - Capacitor for 5V rail
 - Capacitor for smooth upload
 - Anti backfeed diode with jumper
 - Room for buzzer
-- separate connector for BUS inputs
 - Connector for gyro sensor
 
 ## ******************************************************
 
 ## Changelog
 
-## New in v0.14-beta.1:
-- SSL servo mode removed
-- SSR, SUR and SXR frequencies changed, now working with Sanwa PGS-CL II servo
+## New in v0.14.0:
+- Oscilloscope added
 - BUS & oscilloscope input is on CH 5 now
-
-## New in v0.14-beta.0:
+- Precise frequency counter in PWM impulse read mode added
+- fixed PWM impulse read bargraph issues
+- SSL servo mode removed, because it was useless
+- SSR, SUR and SXR frequencies changed, now working with Sanwa PGS-CL II servo
 - Added support for active 3V buzzer on GPIO 4
 - Calculator: added power of
-- Servo operation mode names are displayed, if known
-- ESP32Servo removed, repaced with native MCPWM ESP32 functionality. Allows way faster servo timings
-- A lot of new servo modes added, more servo info on screen
+- ESP32Servo library removed, repaced with native MCPWM ESP32 functionality. Allows way faster servo timings
+- A lot of new servo modes added, names are displayed on screen
 
 ## New in v0.13.0:
 - Servo Hz setting effective on all servo channels and in automatic mode

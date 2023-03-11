@@ -32,7 +32,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.14-beta.1"; // Software revision.
+char codeVersion[] = "0.14.0"; // Software revision.
 
 //
 // =======================================================================================================
@@ -55,7 +55,7 @@ char codeVersion[] = "0.14-beta.1"; // Software revision.
 // No manual library download is required in Visual Studio Code IDE (see platformio.ini)
 
 /* Boardversion
-ESP32                                         2.0.5 or 2.0.6 <<--- (make sure your Espressif32 piatform is up to date in Platformio > Platforms > Updates)
+ESP32                                         2.0.5 or 2.0.6 <<--- (make sure your Espressif32 platform is up to date in Platformio > Platforms > Updates)
  */
 
 /* Required Libraries / Benötigte Bibliotheken
@@ -148,18 +148,17 @@ bool disableButtonRead;       // In gewissen Situationen soll der Encoder Button
 #define SERVO_CONNECTOR_5 32
 
 // Servo
-volatile unsigned char servopin[5] = {SERVO_CONNECTOR_1, SERVO_CONNECTOR_2, SERVO_CONNECTOR_3, SERVO_CONNECTOR_4, SERVO_CONNECTOR_5}; // Pins Servoausgang 1 - 5
-// Servo servo[5];                                                                                                                       // Servo Objekte erzeugen
-int servo_pos[5];      // Speicher für Servowerte
-int selectedServo = 0; // Das momentan angesteuerte Servo
-String servoMode = ""; // Servo operation mode text
+uint8_t servopin[5] = {SERVO_CONNECTOR_1, SERVO_CONNECTOR_2, SERVO_CONNECTOR_3, SERVO_CONNECTOR_4, SERVO_CONNECTOR_5}; // Pins Servoausgang 1 - 5                                                                                                                     // Servo Objekte erzeugen
+int servo_pos[5];                                                                                                      // Speicher für Servowerte
+int selectedServo = 0;                                                                                                 // Das momentan angesteuerte Servo
+String servoMode = "";                                                                                                 // Servo operation mode text
 
-// Servo operation modes
+// Servo operation modes (see servoModes.h)
 enum
 {
   STD, // Std = 50Hz   1000 - 1500 - 2000µs = gemäss ursprünglichem Standard
   NOR, // NOR = 100Hz  1000 - 1500 - 2000µs = normal = für die meisten analogen Servos
-  SHR, // SHR = 333Hz  1000 - 1500 - 2000µs = Sanwa High-Response = für alle Digitalservos
+  SHR, // SHR = 333Hz  1000 - 1500 - 2000µs = Sanwa High Response = für alle Digitalservos
   SSR, // SSR = 400Hz   130 -  300 - 470µs  = Sanwa Super Response = nur für Sanwa Servos der SRG-Linie
   SUR, // SUR = 800Hz   130 -  300 - 470µs  = Sanwa Ultra Response
   SXR  // SXR = 1600Hz  130 -  300 - 470µs  = Sanwa Xtreme Response
@@ -234,6 +233,7 @@ bool Auto_Pause = 0; // Pause im Auto Modus
 //-Menu 53 Impuls lesen
 int Impuls_min = 1000;
 int Impuls_max = 2000;
+int pwmFreq = 0;
 
 //-Menu 54 Multiwitch Futaba lesen
 #define kanaele 9    // Anzahl der Multiswitch Kanäle
@@ -284,7 +284,7 @@ const long timeoutTime = 2000;            // Define timeout time in milliseconds
 // =======================================================================================================
 //
 
-// Map as Float
+// Map as Float --------------------------------------------------------------------------------
 float map_float(float x, float in_min, float in_max, float out_min, float out_max)
 {
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
@@ -296,7 +296,7 @@ float us2degree(uint16_t value)
   return map_float(float(value), float(SERVO_MIN), float(SERVO_MAX), -45.0, 45.0);
 }
 
-// buzzer control
+// buzzer control ------------------------------------------------------------------------------
 void beep()
 {
   static unsigned long buzzerTriggerMillis;
@@ -313,7 +313,7 @@ void beep()
   }
 }
 
-// Loop time measurement
+// Loop time measurement -----------------------------------------------------------------------
 unsigned long loopDuration()
 {
   static unsigned long timerOld;
@@ -324,7 +324,35 @@ unsigned long loopDuration()
   return loopTime;
 }
 
-// Additional headers
+// Frequency counter ---------------------------------------------------------------------------
+#define WAIT_FOR_PIN_STATE(state)                                       \
+  while (digitalRead(pin) != (state))                                   \
+  {                                                                     \
+    if (cpu_hal_get_cycle_count() - start_cycle_count > timeout_cycles) \
+    {                                                                   \
+      return 0;                                                         \
+    }                                                                   \
+  }
+
+unsigned long readFreq(uint8_t pin, uint8_t state, unsigned long timeout)
+{
+  const uint32_t max_timeout_us = clockCyclesToMicroseconds(UINT_MAX);
+  if (timeout > max_timeout_us)
+  {
+    timeout = max_timeout_us;
+  }
+  const uint32_t timeout_cycles = microsecondsToClockCycles(timeout);
+  const uint32_t start_cycle_count = cpu_hal_get_cycle_count();
+  WAIT_FOR_PIN_STATE(!state);
+  WAIT_FOR_PIN_STATE(state);                                          // Signal going high
+  const uint32_t pulse_start_cycle_count = cpu_hal_get_cycle_count(); // Store start time
+  WAIT_FOR_PIN_STATE(!state);                                         // Signal going low
+  WAIT_FOR_PIN_STATE(state);                                          // Signal going high again
+
+  return 1000000 / (clockCyclesToMicroseconds(cpu_hal_get_cycle_count() - pulse_start_cycle_count));
+}
+
+// Additional headers --------------------------------------------------------------------------
 #include "src/pong.h"         // A little pong game :-)
 #include "src/flappyBirds.h"  // A little flappy birds game :-)
 #include "src/calculator.h"   // A handy calculator
@@ -648,7 +676,8 @@ void MenuUpdate()
   {
     // Servotester Auswahl *********************************************************
   case Servotester_Auswahl:
-    servoModes(); // Refresh servo operation mode
+    servoModes();   // Refresh servo operation mode
+    batteryVolts(); // Read battery voltage
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -1192,6 +1221,8 @@ void MenuUpdate()
   // PWM Impuls lesen *********************************************************
   case Impuls_lesen_Menu:
 
+    bool parameterSet; // See servoModes.h
+
     if (!SetupMenu)
     {
       pinMode(servopin[0], INPUT);
@@ -1202,38 +1233,64 @@ void MenuUpdate()
       SetupMenu = true;
     }
 
-    servo_pos[selectedServo] = pulseIn(servopin[selectedServo], HIGH, 50000);
+    servo_pos[selectedServo] = pulseIn(servopin[selectedServo], HIGH, 50000); // Read PWM signal
+    pwmFreq = readFreq(servopin[selectedServo], HIGH, 50000);                 // Read PWM frequency
 
-    if (servo_pos[selectedServo] < Impuls_min && servo_pos[selectedServo] > 100)
+    // Switch progress bar range
+    if (servo_pos[selectedServo] < 750)
+      parameterSet = 1; // Normal pulsewidth range
+    else
+      parameterSet = 0; // Sanwa pulsewidth range
+
+    if (servo_pos[selectedServo] > servoMin[parameterSet] && servo_pos[selectedServo] < servoMax[parameterSet])
     {
-      Impuls_min = servo_pos[selectedServo];
+      Impuls_min = servoMin[parameterSet];
+      Impuls_max = servoMax[parameterSet];
     }
+
+    // Enlarge range, if required
     if (servo_pos[selectedServo] > Impuls_max)
-    {
       Impuls_max = servo_pos[selectedServo];
-    }
+    if (servo_pos[selectedServo] < Impuls_min)
+      Impuls_min = servo_pos[selectedServo];
 
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, impulseString[LANGUAGE] + String(selectedServo + 1));
-    display.drawString(64, 25, String(servo_pos[selectedServo]) + "µs");
-    if (servo_pos[selectedServo] < 1000)
-      servo_pos[selectedServo] = 1000; // Make sure, that progressbar always is within range
-    display.drawProgressBar(8, 50, 112, 10, (((servo_pos[selectedServo] - Impuls_min) * 100) / (Impuls_max - Impuls_min)));
-    display.display();
+    static unsigned long pwmMenuMillis;
+    if (millis() - pwmMenuMillis > 100)
+    { // Every 100ms (slow screen refresh down, display is too nervous otherwise!)
+      pwmMenuMillis = millis();
+      display.clear();
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.setFont(ArialMT_Plain_24);
+      display.drawString(64, 0, impulseString[LANGUAGE] + String(selectedServo + 1));
+      display.drawString(64, 25, String(servo_pos[selectedServo]) + "µs");
+
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.setFont(ArialMT_Plain_10);
+
+      display.drawString(0, 25, "Hz");
+      display.drawString(0, 35, String(pwmFreq));
+
+      if (pwmFreq > 1)
+      {
+        display.drawProgressBar(8, 50, 112, 10, (((servo_pos[selectedServo] - Impuls_min) * 100) / (Impuls_max - Impuls_min)));
+      }
+      else
+      {
+        display.setTextAlignment(TEXT_ALIGN_CENTER);
+        display.setFont(ArialMT_Plain_10);
+        display.drawString(64, 50, impulseSignalString[LANGUAGE]);
+      }
+
+      display.display();
+    }
 
     if (encoderState == 1)
     {
       selectedServo--;
-      Impuls_min = 1000;
-      Impuls_max = 2000;
     }
     if (encoderState == 2)
     {
       selectedServo++;
-      Impuls_min = 1000;
-      Impuls_max = 2000;
     }
 
     if (selectedServo > 4)
@@ -1251,12 +1308,6 @@ void MenuUpdate()
       SetupMenu = false;
       selectedServo = 0;
     }
-
-    if (buttonState == 2)
-    {
-      Impuls_min = 1000;
-      Impuls_max = 2000;
-    }
     break;
 
   // Multiswitch lesen *********************************************************
@@ -1264,7 +1315,7 @@ void MenuUpdate()
   case Multiswitch_lesen_Menu:
     static unsigned long multiswitchMenuMillis;
     if (millis() - multiswitchMenuMillis > 20)
-    { // Every 20ms (slow screen refresh down, signal is unstable otherwise!) TODO, still unstable
+    { // Every 20ms (slow screen refresh down)
       multiswitchMenuMillis = millis();
       display.clear();
       display.setTextAlignment(TEXT_ALIGN_LEFT);
@@ -2023,7 +2074,7 @@ void loop()
   ButtonRead();
   beep();
   MenuUpdate();
-  batteryVolts();
+  // batteryVolts(); // TODO
   webInterface();
   // Serial.print(loopDuration());
 }

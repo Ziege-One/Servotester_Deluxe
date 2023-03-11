@@ -22,6 +22,7 @@ String pongBallRateString[] {"Pong ball speed", "Pong Ball Gesch.", "Pong V. de 
 
 // Impuls lesen
 String impulseString[] {"Impulse", "Impuls", "Impulsion"};
+String impulseSignalString[] {"No signal", "Kein Signal", "Pas de signal"};
 
 // Automatik
 String delayString[] {"Delay", "Verz.", "Ret."};

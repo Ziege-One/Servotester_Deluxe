@@ -4,16 +4,6 @@
 
 #include "Arduino.h"
 
-/*
- ###################################################################
- Title:       Arduino Oscilloscope
- Purpose:     Made for the Servotester Deluxe
- Created by:  TheDIYGuy999
- Note:        Please reuse, repurpose, and redistribute this code.
- Note:        ESP32 & 1106 OLED
- ###################################################################
- */
-
 //
 // ========================================
 // GLOBAL VARIABLES
@@ -22,11 +12,11 @@
 
 int displayWidth = 128;
 
-int timeBase = 0;      // define a variable for the x delay (90 for 50 Hz, 10 for 333, 0 for 1520)
-int samplingDelay = 0; // define a variable for the X scale / delay
-int sampleNo = 0;      // define a variable for the sample number used to collect x position into array
-int sampleHi = 0;      // Samples, which are above trigger level
-int posX = 0;          // define a variable for the sample number used to write x position on the LCD
+int timeBase = 0;        // define a variable for the x delay (90 for 50 Hz, 10 for 333, 0 for 1520)
+int samplingDelay = 100; // define a variable for the X scale / delay (100 is ideal for a 50Hz signal)
+int sampleNo = 0;        // define a variable for the sample number used to collect x position into array
+int sampleHi = 0;        // Samples, which are above trigger level
+int posX = 0;            // define a variable for the sample number used to write x position on the LCD
 
 // array parameters
 #define arraySize displayWidth // how much samples are in the array
@@ -81,6 +71,9 @@ void adjustADC()
     samplingDelay -= 4;
     popupMillis = millis();
   }
+
+  if (buttonState == 2)
+  popupMillis = millis(); // Show popup, if button licked
 
   samplingDelay = constrain(samplingDelay, 0, 332); // 332 for 50Hz
 }

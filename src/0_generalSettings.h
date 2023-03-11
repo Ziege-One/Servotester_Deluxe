@@ -7,7 +7,7 @@
  */
 
 // Display settings ----------------------------------------------------------------------------------------------
-//#define OLED1306 //A SSD1306 0.96" Display is selected, if defined. Otherwise a SH1106 1.3" display
+//#define OLED1306 //An SSD1306 0.96" Display is selected, if defined. Otherwise an SH1106 1.3" display
 //#define ALTERNATIVE_LOGO // Alternative boot logo
 
 // WiFi settings -------------------------------------------------------------------------------------------------
