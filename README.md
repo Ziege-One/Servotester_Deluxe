@@ -29,7 +29,7 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 ![](documentation/pictures/ppm_scope.jpg)
 
 ## Calculator
-![](documentation/pictures/scope.jpg)
+![](documentation/pictures/calculator.jpg)
 
 ## Features
 - 5 channel PWM Signal generator for the following modes: STD, NOR, SSR, SUR, SXR
