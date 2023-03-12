@@ -65,6 +65,9 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 
 ## Changelog
 
+## New in v0.15-beta.1:
+- Battery voltage not actualized during power scale adjustment: bug fixed
+
 ## New in v0.15-beta.0:
 - EEPROM factory reset option in settings menu
 - Servo endpoints and centerpoint are adjustable in 2 groups: STD, NOR, SHR and SSR, SUR, SXR and saved in EEPROM

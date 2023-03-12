@@ -32,7 +32,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.15-beta.0"; // Software revision.
+char codeVersion[] = "0.15-beta.1"; // Software revision.
 
 //
 // =======================================================================================================
@@ -1632,6 +1632,7 @@ void MenuUpdate()
 
   // Einstellung *********************************************************
   case Einstellung_Menu:
+    batteryVolts(); // Read battery voltage
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
