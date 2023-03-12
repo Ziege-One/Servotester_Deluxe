@@ -59,10 +59,17 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 - Anti backfeed diode with jumper
 - Room for buzzer
 - Connector for gyro sensor
+- Reset button
 
 ## ******************************************************
 
 ## Changelog
+
+## New in v0.15-beta.0:
+- EEPROM factory reset option in settings menu
+- Servo endpoints and centerpoint are adjustable in 2 groups: STD, NOR, SHR and SSR, SUR, SXR and saved in EEPROM
+- Software version is displayed eralier (after logo)
+- Sligt oscilloscope optimization
 
 ## New in v0.14.0:
 - Oscilloscope added

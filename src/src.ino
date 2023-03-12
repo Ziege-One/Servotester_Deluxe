@@ -32,7 +32,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.14.0"; // Software revision.
+char codeVersion[] = "0.15-beta.0"; // Software revision.
 
 //
 // =======================================================================================================
@@ -79,6 +79,7 @@ Array                                         1.0.0
 #include <Esp.h>          // for displaying memory information
 #include "rom/rtc.h"      // for displaying reset reason
 #include "driver/mcpwm.h" // for servo PWM output
+#include "soc/rtc_wdt.h"  // for watchdog timer
 #include <string>         // std::string, std::stof
 using namespace std;
 
@@ -92,34 +93,48 @@ using namespace std;
 #include "src/languages.h" // Menu language ressources
 
 // EEPROM
-#define EEPROM_SIZE 48
+#define EEPROM_SIZE 72
 
-#define adr_eprom_WIFI_ON 0           // WIFI 1 = Ein 0 = Aus
-#define adr_eprom_SERVO_STEPS 4       // SERVO Steps für Encoder im Servotester Modus
-#define adr_eprom_SERVO_MAX 8         // SERVO µs Max Wert im Servotester Modus
-#define adr_eprom_SERVO_MIN 12        // SERVO µs Min Wert im Servotester Modus
-#define adr_eprom_SERVO_CENTER 16     // SERVO µs Mitte Wert im Servotester Modus
-#define adr_eprom_SERVO_Hz 20         // SERVO µs Mitte Wert im Servotester Modus
-#define adr_eprom_POWER_SCALE 24      // SERVO µs Mitte Wert im Servotester Modus
-#define adr_eprom_SBUS_INVERTED 28    // SBUS inverted
-#define adr_eprom_ENCODER_INVERTED 32 // Encoder inverted
-#define adr_eprom_LANGUAGE 36         // Gewählte Sprache
-#define adr_eprom_PONG_BALL_RATE 40   // Pong Ball Geschwindigkeit
-#define adr_eprom_SERVO_MODE 44       // Servo operation mode
+int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 
-// Speicher der Einstellungen
-int WIFI_ON;
-int SERVO_STEPS;
-int SERVO_MAX;
-int SERVO_MIN;
-int SERVO_CENTER;
-int SERVO_Hz;
-int POWER_SCALE;
-int SBUS_INVERTED;
-int ENCODER_INVERTED;
-int LANGUAGE;
-int PONG_BALL_RATE;
-int SERVO_MODE;
+#define adr_eprom_WIFI_ON 0             // WIFI 1 = Ein 0 = Aus
+#define adr_eprom_SERVO_STEPS 4         // Deprecated, calculated automaticallly
+#define adr_eprom_SERVO_MAX 8           // Deprecated, controlled by servoModes.h
+#define adr_eprom_SERVO_MIN 12          // Deprecated, controlled by servoModes.h
+#define adr_eprom_SERVO_CENTER 16       // Deprecated, controlled by servoModes.h
+#define adr_eprom_SERVO_Hz 20           // Deprecated, controlled by servoModes.h
+#define adr_eprom_POWER_SCALE 24        // Skalierung für Akkuspannungs-Messung
+#define adr_eprom_SBUS_INVERTED 28      // SBUS inverted
+#define adr_eprom_ENCODER_INVERTED 32   // Encoder inverted
+#define adr_eprom_LANGUAGE 36           // Gewählte Sprache
+#define adr_eprom_PONG_BALL_RATE 40     // Pong Ball Geschwindigkeit
+#define adr_eprom_SERVO_MODE 44         // Servo operation mode
+#define adr_eprom_SERVO_MAX_STD 48      // SERVO µs Max Wert im Servotester Modus (Standard)
+#define adr_eprom_SERVO_MIN_STD 52      // SERVO µs Min Wert im Servotester Modus (Standard)
+#define adr_eprom_SERVO_CENTER_STD 56   // SERVO µs Mitte Wert im Servotester Modus (Standard)
+#define adr_eprom_SERVO_MAX_SANWA 60    // SERVO µs Max Wert im Servotester Modus (Sanwa)
+#define adr_eprom_SERVO_MIN_SANWA 64    // SERVO µs Min Wert im Servotester Modus (Sanwa)
+#define adr_eprom_SERVO_CENTER_SANWA 68 // SERVO µs Mitte Wert im Servotester Modus (Sanwa)
+
+// EEPROM Speicher der Einstellungen
+int WIFI_ON;            // WIFI 1 = Ein 0 = Aus
+int SERVO_STEPS;        // Deprecated, calculated automaticallly
+int SERVO_MAX;          // Deprecated, controlled by servoModes.h
+int SERVO_MIN;          // Deprecated, controlled by servoModes.h
+int SERVO_CENTER;       // Deprecated, controlled by servoModes.h
+int SERVO_Hz;           // Deprecated, controlled by servoModes.h
+int POWER_SCALE;        // Skalierung für Akkuspannungs-Messung
+int SBUS_INVERTED;      // SBUS inverted
+int ENCODER_INVERTED;   // Encoder inverted
+int LANGUAGE;           // Gewählte Sprache
+int PONG_BALL_RATE;     // Pong Ball Geschwindigkeit
+int SERVO_MODE;         // New servo parameters starting here
+int SERVO_MAX_STD;      // SERVO µs Max Wert im Servotester Modus (Standard)
+int SERVO_MIN_STD;      // SERVO µs Min Wert im Servotester Modus (Standard)
+int SERVO_CENTER_STD;   // SERVO µs Mitte Wert im Servotester Modus (Standard)
+int SERVO_MAX_SANWA;    // SERVO µs Max Wert im Servotester Modus (Sanwa)
+int SERVO_MIN_SANWA;    // SERVO µs Min Wert im Servotester Modus (Sanwa)
+int SERVO_CENTER_SANWA; // SERVO µs Mitte Wert im Servotester Modus (Sanwa)
 
 // Encoder + button
 ESP32Encoder encoder;
@@ -412,6 +427,10 @@ void setupMcpwm()
 //
 void setup()
 {
+
+  // Watchdog timers need to be disabled, if task 1 is running without delay(1)
+  disableCore0WDT();
+
   // Serial setup
   Serial.begin(115200); // USB serial (for DEBUG)
 
@@ -460,7 +479,18 @@ void setup()
   display.setFont(ArialMT_Plain_10);
   display.drawXbm(0, 0, Logo_width, Logo_height, Logo_bits);
   display.display();
-  delay(1500);
+  delay(1250);
+
+  // Show software version
+  display.clear();
+  display.setTextAlignment(TEXT_ALIGN_CENTER);
+  display.setFont(ArialMT_Plain_16);
+  display.drawString(64, 10, "Software Version:");
+  display.drawString(64, 26, String(codeVersion));
+  display.setFont(ArialMT_Plain_10);
+  display.drawString(64, 45, "TheDIYGuy999 version");
+  display.display();
+  delay(1250);
 
   // Show manual
   display.clear();
@@ -527,14 +557,6 @@ void setup()
     delay(1500);
   }
 
-  display.clear();
-  display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.setFont(ArialMT_Plain_16);
-  display.drawString(64, 10, "Software Version:");
-  display.drawString(64, 26, String(codeVersion));
-  display.display();
-  delay(1000);
-
   encoder.setCount(Menu);
   servo_pos[0] = 1500;
   servo_pos[1] = 1500;
@@ -543,6 +565,20 @@ void setup()
   servo_pos[4] = 1500;
 
   beepDuration = 10; // Short beep = device ready
+
+  /*
+    // Task 1 setup (running on core 0) TODO, testing only
+    TaskHandle_t Task1;
+    // create a task that will be executed in the Task1code() function, with priority 1 and executed on core 0
+    xTaskCreatePinnedToCore(
+        Task1code, // Task function
+        "Task1",   // name of task
+        8192,      // Stack size of task (8192)
+        NULL,      // parameter of the task
+        1,         // priority of the task (1 = low, 3 = medium, 5 = highest)
+        &Task1,    // Task handle to keep track of created task
+        0);        // pin task to core 0
+        */
 }
 
 //
@@ -1237,15 +1273,15 @@ void MenuUpdate()
     pwmFreq = readFreq(servopin[selectedServo], HIGH, 50000);                 // Read PWM frequency
 
     // Switch progress bar range
-    if (servo_pos[selectedServo] < 750)
-      parameterSet = 1; // Normal pulsewidth range
-    else
-      parameterSet = 0; // Sanwa pulsewidth range
-
-    if (servo_pos[selectedServo] > servoMin[parameterSet] && servo_pos[selectedServo] < servoMax[parameterSet])
+    if (servo_pos[selectedServo] > 750) // Normal pulsewidth range
     {
-      Impuls_min = servoMin[parameterSet];
-      Impuls_max = servoMax[parameterSet];
+      Impuls_min = SERVO_MIN_STD;
+      Impuls_max = SERVO_MAX_STD;
+    }
+    else // Sanwa pulsewidth range
+    {
+      Impuls_min = SERVO_MIN_SANWA;
+      Impuls_max = SERVO_MAX_SANWA;
     }
 
     // Enlarge range, if required
@@ -1270,7 +1306,7 @@ void MenuUpdate()
       display.drawString(0, 25, "Hz");
       display.drawString(0, 35, String(pwmFreq));
 
-      if (pwmFreq > 1)
+      if (pwmFreq > 1) // Only show progress bar, if we have a signal
       {
         display.drawProgressBar(8, 50, 112, 10, (((servo_pos[selectedServo] - Impuls_min) * 100) / (Impuls_max - Impuls_min)));
       }
@@ -1460,10 +1496,13 @@ void MenuUpdate()
       pinMode(servopin[3], INPUT);
       pinMode(servopin[4], INPUT);
       pinMode(OSCILLOSCOPE_PIN, INPUT);
+      oscilloscopeLoop(true); // Init oscilloscope
       SetupMenu = true;
     }
-
-    oscilloscopeLoop(); // Loop oscilloscope code
+    else
+    {
+      oscilloscopeLoop(false); // Loop oscilloscope code
+    }
 
     if (buttonState == 1) // Back
     {
@@ -1612,20 +1651,36 @@ void MenuUpdate()
       }
       break;
     case 1:
-      display.drawString(64, 25, servoStepsString[LANGUAGE]);
-      display.drawString(64, 45, String(SERVO_STEPS));
+      display.drawString(64, 25, factoryResetString[LANGUAGE]);
+      if (RESET_EEPROM == 1)
+      {
+        display.drawString(64, 45, yesString[LANGUAGE]);
+      }
+      else
+      {
+        display.drawString(64, 45, noString[LANGUAGE]);
+      }
       break;
     case 2:
       display.drawString(64, 25, servoMaxString[LANGUAGE]);
       display.drawString(64, 45, String(SERVO_MAX));
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(128, 50, servoMode);
       break;
     case 3:
       display.drawString(64, 25, servoMinString[LANGUAGE]);
       display.drawString(64, 45, String(SERVO_MIN));
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(128, 50, servoMode);
       break;
     case 4:
       display.drawString(64, 25, servoCenterString[LANGUAGE]);
       display.drawString(64, 45, String(SERVO_CENTER));
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(128, 50, servoMode);
       break;
     case 5:
       display.drawString(64, 25, servoHzString[LANGUAGE]);
@@ -1638,7 +1693,6 @@ void MenuUpdate()
       display.drawString(128, 27, "µs");
       display.drawString(128, 37, String(SERVO_MAX));
       display.drawString(128, 50, servoMode);
-
       break;
     case 6:
       display.drawString(64, 25, PowerScaleString[LANGUAGE]);
@@ -1692,7 +1746,7 @@ void MenuUpdate()
       SetupMenu = true;
     }
 
-    if (encoderState == 1) // Encoder left turn
+    if (encoderState == 1) // Encoder left turn -------
     {
       if (!Edit)
       {
@@ -1706,16 +1760,25 @@ void MenuUpdate()
           WIFI_ON--;
           break;
         case 1:
-          SERVO_STEPS--;
+          RESET_EEPROM--;
           break;
         case 2:
-          SERVO_MAX--;
+          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
+            SERVO_MAX_STD--;
+          else
+            SERVO_MAX_SANWA--;
           break;
         case 3:
-          SERVO_MIN--;
+          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
+            SERVO_MIN_STD--;
+          else
+            SERVO_MIN_SANWA--;
           break;
         case 4:
-          SERVO_CENTER--;
+          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
+            SERVO_CENTER_STD--;
+          else
+            SERVO_CENTER_SANWA--;
           break;
         case 5:
           SERVO_MODE--;
@@ -1738,7 +1801,7 @@ void MenuUpdate()
         }
       }
     }
-    if (encoderState == 2) // Encoder right turn
+    if (encoderState == 2) // Encoder right turn ------
     {
       if (!Edit)
       {
@@ -1752,16 +1815,25 @@ void MenuUpdate()
           WIFI_ON++;
           break;
         case 1:
-          SERVO_STEPS++;
+          RESET_EEPROM++;
           break;
         case 2:
-          SERVO_MAX++;
+          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
+            SERVO_MAX_STD++;
+          else
+            SERVO_MAX_SANWA++;
           break;
         case 3:
-          SERVO_MIN++;
+          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
+            SERVO_MIN_STD++;
+          else
+            SERVO_MIN_SANWA++;
           break;
         case 4:
-          SERVO_CENTER++;
+          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
+            SERVO_CENTER_STD++;
+          else
+            SERVO_CENTER_SANWA++;
           break;
         case 5:
           SERVO_MODE++;
@@ -1785,7 +1857,7 @@ void MenuUpdate()
       }
     }
 
-    // Menu range
+    // Menu range -------------------------------------
     if (Einstellung > 10)
     {
       Einstellung = 0;
@@ -1795,7 +1867,7 @@ void MenuUpdate()
       Einstellung = 10;
     }
 
-    // Limits
+    // Limits -----------------------------------------
     if (PONG_BALL_RATE < 1)
     { // Pong ball rate nicht unter 1
       PONG_BALL_RATE = 1;
@@ -1846,50 +1918,28 @@ void MenuUpdate()
       WIFI_ON = 1;
     }
 
-    // Servos
-    if (SERVO_STEPS < 1)
-    { // Steps nicht unter 0
-      SERVO_STEPS = 1;
+    if (RESET_EEPROM < 0)
+    { // Reset eeprom nicht unter 0
+      RESET_EEPROM = 0;
     }
 
-    if (SERVO_STEPS > 50)
-    { // Steps nicht über 50
-      SERVO_STEPS = 50;
+    if (RESET_EEPROM > 1)
+    { // Reset eeprom nicht über 1
+      RESET_EEPROM = 1;
     }
 
-    if (SERVO_MAX < SERVO_CENTER)
-    { // Max nicht unter Mitte
-      SERVO_MAX = SERVO_CENTER + 1;
-    }
+    SERVO_MIN_STD = constrain(SERVO_MIN_STD, 800, 1200);
+    SERVO_MIN_SANWA = constrain(SERVO_MIN_SANWA, 100, 200);
 
-    if (SERVO_MAX > 2500)
-    { // Max nicht über 2500
-      SERVO_MAX = 2500;
-    }
+    SERVO_CENTER_STD = constrain(SERVO_CENTER_STD, 1400, 1600);
+    SERVO_CENTER_SANWA = constrain(SERVO_CENTER_SANWA, 250, 350);
 
-    if (SERVO_MIN > SERVO_CENTER)
-    { // Min nicht über Mitte
-      SERVO_MIN = SERVO_CENTER - 1;
-    }
-
-    if (SERVO_MIN < 50)
-    { // Min nicht unter 50
-      SERVO_MIN = 50;
-    }
-
-    if (SERVO_CENTER > SERVO_MAX)
-    { // Mitte nicht über Max
-      SERVO_CENTER = SERVO_MAX - 1;
-    }
-
-    if (SERVO_CENTER < SERVO_MIN)
-    { // Mitte nicht unter Min
-      SERVO_CENTER = SERVO_MIN + 1;
-    }
+    SERVO_MAX_STD = constrain(SERVO_MAX_STD, 1800, 2200);
+    SERVO_MAX_SANWA = constrain(SERVO_MAX_SANWA, 400, 500);
 
     servoModes(); // Refresh servo operation mode
 
-    // Buttons -----------
+    // Buttons ---------------------------------------
     if (buttonState == 1)
     {
       Menu = Einstellung_Auswahl;
@@ -1901,8 +1951,14 @@ void MenuUpdate()
       if (Edit)
       {
         Edit = false;
-        // Speichern
-        eepromWrite();
+        if (RESET_EEPROM)
+        {
+          eepromInit(); // Restore defaults
+        }
+        else
+        {
+          eepromWrite(); // Safe changes
+        }
       }
       else
       {
@@ -1989,22 +2045,32 @@ void batteryVolts()
 // Init new board with the default values you want ------
 void eepromInit()
 {
-  Serial.println(SERVO_MIN);
-  if (SERVO_MIN < 50)
+  Serial.println(SERVO_MIN_STD);
+  if (SERVO_MIN_STD < 50 || RESET_EEPROM) // Automatic or manual reset
   {
+    RESET_EEPROM = 0;
+
+    // Restore defaults
     WIFI_ON = 1; // Wifi on
-    SERVO_STEPS = 10;
-    SERVO_MAX = 2000;
-    SERVO_MIN = 1000;
-    SERVO_CENTER = 1500;
-    SERVO_Hz = 50;
+    // SERVO_STEPS = 10;
+    // SERVO_MAX = 2000;
+    // SERVO_MIN = 1000;
+    // SERVO_CENTER = 1500;
+    // SERVO_Hz = 50;
     POWER_SCALE = 948;
     SBUS_INVERTED = 1; // 1 = Standard signal!
     ENCODER_INVERTED = 0;
     LANGUAGE = 0;
     PONG_BALL_RATE = 1;
     SERVO_MODE = STD;
+    SERVO_MAX_STD = 2000;
+    SERVO_MIN_STD = 1000;
+    SERVO_CENTER_STD = 1500;
+    SERVO_MAX_SANWA = 470;
+    SERVO_MIN_SANWA = 130;
+    SERVO_CENTER_SANWA = 300;
     Serial.println(eepromInitString[LANGUAGE]);
+    servoModes(); // servoModes() needs to be executed in order to actualize the values TODO
     eepromWrite();
   }
 }
@@ -2013,17 +2079,23 @@ void eepromInit()
 void eepromWrite()
 {
   EEPROM.writeInt(adr_eprom_WIFI_ON, WIFI_ON);
-  EEPROM.writeInt(adr_eprom_SERVO_STEPS, SERVO_STEPS);
-  EEPROM.writeInt(adr_eprom_SERVO_MAX, SERVO_MAX);
-  EEPROM.writeInt(adr_eprom_SERVO_MIN, SERVO_MIN);
-  EEPROM.writeInt(adr_eprom_SERVO_CENTER, SERVO_CENTER);
-  EEPROM.writeInt(adr_eprom_SERVO_Hz, SERVO_Hz);
+  // EEPROM.writeInt(adr_eprom_SERVO_STEPS, SERVO_STEPS);
+  //  EEPROM.writeInt(adr_eprom_SERVO_MAX, SERVO_MAX);
+  //  EEPROM.writeInt(adr_eprom_SERVO_MIN, SERVO_MIN);
+  //  EEPROM.writeInt(adr_eprom_SERVO_CENTER, SERVO_CENTER);
+  //  EEPROM.writeInt(adr_eprom_SERVO_Hz, SERVO_Hz);
   EEPROM.writeInt(adr_eprom_POWER_SCALE, POWER_SCALE);
   EEPROM.writeInt(adr_eprom_SBUS_INVERTED, SBUS_INVERTED);
   EEPROM.writeInt(adr_eprom_ENCODER_INVERTED, ENCODER_INVERTED);
   EEPROM.writeInt(adr_eprom_LANGUAGE, LANGUAGE);
   EEPROM.writeInt(adr_eprom_PONG_BALL_RATE, PONG_BALL_RATE);
   EEPROM.writeInt(adr_eprom_SERVO_MODE, SERVO_MODE);
+  EEPROM.writeInt(adr_eprom_SERVO_MAX_STD, SERVO_MAX_STD);
+  EEPROM.writeInt(adr_eprom_SERVO_MIN_STD, SERVO_MIN_STD);
+  EEPROM.writeInt(adr_eprom_SERVO_CENTER_STD, SERVO_CENTER_STD);
+  EEPROM.writeInt(adr_eprom_SERVO_MAX_SANWA, SERVO_MAX_SANWA);
+  EEPROM.writeInt(adr_eprom_SERVO_MIN_SANWA, SERVO_MIN_SANWA);
+  EEPROM.writeInt(adr_eprom_SERVO_CENTER_SANWA, SERVO_CENTER_SANWA);
 
   EEPROM.commit();
   Serial.println(eepromWrittenString[LANGUAGE]);
@@ -2033,23 +2105,32 @@ void eepromWrite()
 void eepromRead()
 {
   WIFI_ON = EEPROM.readInt(adr_eprom_WIFI_ON);
-  SERVO_STEPS = EEPROM.readInt(adr_eprom_SERVO_STEPS);
-  SERVO_MAX = EEPROM.readInt(adr_eprom_SERVO_MAX);
-  SERVO_MIN = EEPROM.readInt(adr_eprom_SERVO_MIN);
-  SERVO_CENTER = EEPROM.readInt(adr_eprom_SERVO_CENTER);
-  SERVO_Hz = EEPROM.readInt(adr_eprom_SERVO_Hz);
+  // SERVO_STEPS = EEPROM.readInt(adr_eprom_SERVO_STEPS);
+  //  SERVO_MAX = EEPROM.readInt(adr_eprom_SERVO_MAX);
+  //  SERVO_MIN = EEPROM.readInt(adr_eprom_SERVO_MIN);
+  //  SERVO_CENTER = EEPROM.readInt(adr_eprom_SERVO_CENTER);
+  //  SERVO_Hz = EEPROM.readInt(adr_eprom_SERVO_Hz);
   POWER_SCALE = EEPROM.readInt(adr_eprom_POWER_SCALE);
   SBUS_INVERTED = EEPROM.readInt(adr_eprom_SBUS_INVERTED);
   ENCODER_INVERTED = EEPROM.readInt(adr_eprom_ENCODER_INVERTED);
   LANGUAGE = EEPROM.readInt(adr_eprom_LANGUAGE);
   PONG_BALL_RATE = EEPROM.readInt(adr_eprom_PONG_BALL_RATE);
   SERVO_MODE = EEPROM.readInt(adr_eprom_SERVO_MODE);
+  SERVO_MAX_STD = EEPROM.readInt(adr_eprom_SERVO_MAX_STD);
+  SERVO_MIN_STD = EEPROM.readInt(adr_eprom_SERVO_MIN_STD);
+  SERVO_CENTER_STD = EEPROM.readInt(adr_eprom_SERVO_CENTER_STD);
+  SERVO_MAX_SANWA = EEPROM.readInt(adr_eprom_SERVO_MAX_SANWA);
+  SERVO_MIN_SANWA = EEPROM.readInt(adr_eprom_SERVO_MIN_SANWA);
+  SERVO_CENTER_SANWA = EEPROM.readInt(adr_eprom_SERVO_CENTER_SANWA);
+
+  servoModes(); // servoModes() needs to be executed in order to actualize the values
+
   Serial.println(eepromReadString[LANGUAGE]);
   Serial.println(WIFI_ON);
-  Serial.println(SERVO_STEPS);
-  Serial.println(SERVO_MAX);
-  Serial.println(SERVO_MIN);
-  Serial.println(SERVO_CENTER);
+  // Serial.println(SERVO_STEPS);
+  // Serial.println(SERVO_MAX);
+  // Serial.println(SERVO_MIN);
+  // Serial.println(SERVO_CENTER);
   Serial.println(POWER_SCALE);
   Serial.println(SBUS_INVERTED);
   Serial.println(ENCODER_INVERTED);
@@ -2060,6 +2141,12 @@ void eepromRead()
   Serial.println(LANGUAGE);
   Serial.println(PONG_BALL_RATE);
   Serial.println(SERVO_MODE);
+  Serial.println(SERVO_MAX_STD);
+  Serial.println(SERVO_MIN_STD);
+  Serial.println(SERVO_CENTER_STD);
+  Serial.println(SERVO_MAX_SANWA);
+  Serial.println(SERVO_MIN_SANWA);
+  Serial.println(SERVO_CENTER_SANWA);
 }
 
 //
@@ -2074,7 +2161,20 @@ void loop()
   ButtonRead();
   beep();
   MenuUpdate();
-  // batteryVolts(); // TODO
   webInterface();
   // Serial.print(loopDuration());
+}
+
+//
+// =======================================================================================================
+// 1st MAIN TASK, RUNNING ON CORE 0 (Interrupts are running on this core as well)
+// =======================================================================================================
+//
+
+void Task1code(void *pvParameters) // TODO, testing only!
+{
+  for (;;)
+  {
+    // vTaskDelay(1);          // REQUIRED TO RESET THE WATCH DOG TIMER IF WORKFLOW DOES NOT CONTAIN ANY OTHER DELAY
+  }
 }

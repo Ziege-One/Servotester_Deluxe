@@ -15,13 +15,11 @@
   // SUR = 800Hz   130 -  300 - 470µs  = Sanwa Ultra Response
   // SXR = 1600Hz  130 -  300 - 470µs  = Sanwa Xtreme Response
 
-// Corresponding microseconds groups
-  int servoMax[]{2000, 470};    // Servo max pos. for normal and Sanwa pulse length profiles
-  int servoCenter[]{1500, 300}; // Servo center pos. for normal and Sanwa pulse length profiles
-  int servoMin[]{1000, 130};    // Servo min pos. for normal and Sanwa pulse length profiles
+// Default µs values see eepromInit()
 
 void servoModes()
 {
+  
   if (SERVO_MODE <= STD)
     SERVO_MODE = STD; // Min. limit
 
@@ -29,9 +27,9 @@ void servoModes()
   if (SERVO_MODE == STD)
   {
     SERVO_Hz = 50;
-    SERVO_MAX = servoMax[0];
-    SERVO_CENTER = servoCenter[0];
-    SERVO_MIN = servoMin[0];
+    SERVO_MAX = SERVO_MAX_STD;
+    SERVO_CENTER = SERVO_CENTER_STD;
+    SERVO_MIN = SERVO_MIN_STD;
 
     servoMode = "Std.";
   }
@@ -39,9 +37,9 @@ void servoModes()
   if (SERVO_MODE == NOR)
   {
     SERVO_Hz = 100;
-    SERVO_MAX = servoMax[0];
-    SERVO_CENTER = servoCenter[0];
-    SERVO_MIN = servoMin[0];
+    SERVO_MAX = SERVO_MAX_STD;
+    SERVO_CENTER = SERVO_CENTER_STD;
+    SERVO_MIN = SERVO_MIN_STD;
 
     servoMode = "NOR";
   }
@@ -49,9 +47,9 @@ void servoModes()
   if (SERVO_MODE == SHR)
   {
     SERVO_Hz = 333;
-    SERVO_MAX = servoMax[0];
-    SERVO_CENTER = servoCenter[0];
-    SERVO_MIN = servoMin[0];
+    SERVO_MAX = SERVO_MAX_STD;
+    SERVO_CENTER = SERVO_CENTER_STD;
+    SERVO_MIN = SERVO_MIN_STD;
 
     servoMode = "SHR";
   }
@@ -60,9 +58,9 @@ void servoModes()
   if (SERVO_MODE == SSR)
   {
     SERVO_Hz = 400;
-    SERVO_MAX = servoMax[1];
-    SERVO_CENTER = servoCenter[1];
-    SERVO_MIN = servoMin[1];
+    SERVO_MAX = SERVO_MAX_SANWA;
+    SERVO_CENTER = SERVO_CENTER_SANWA;
+    SERVO_MIN = SERVO_MIN_SANWA;
 
     servoMode = "SSR";
   }
@@ -70,9 +68,9 @@ void servoModes()
   if (SERVO_MODE == SUR)
   {
     SERVO_Hz = 800;
-    SERVO_MAX = servoMax[1];
-    SERVO_CENTER = servoCenter[1];
-    SERVO_MIN = servoMin[1];
+    SERVO_MAX = SERVO_MAX_SANWA;
+    SERVO_CENTER = SERVO_CENTER_SANWA;
+    SERVO_MIN = SERVO_MIN_SANWA;
 
     servoMode = "SUR";
   }
@@ -80,9 +78,9 @@ void servoModes()
   if (SERVO_MODE == SXR)
   {
     SERVO_Hz = 1600;
-    SERVO_MAX = servoMax[1];
-    SERVO_CENTER = servoCenter[1];
-    SERVO_MIN = servoMin[1];
+    SERVO_MAX = SERVO_MAX_SANWA;
+    SERVO_CENTER = SERVO_CENTER_SANWA;
+    SERVO_MIN = SERVO_MIN_SANWA;
 
     servoMode = "SXR";
   }

@@ -10,17 +10,17 @@
 // ========================================
 //
 
-int displayWidth = 128;
+const int displayWidth = 128;
 
-int timeBase = 0;        // define a variable for the x delay (90 for 50 Hz, 10 for 333, 0 for 1520)
-int samplingDelay = 100; // define a variable for the X scale / delay (100 is ideal for a 50Hz signal)
-int sampleNo = 0;        // define a variable for the sample number used to collect x position into array
-int sampleHi = 0;        // Samples, which are above trigger level
-int posX = 0;            // define a variable for the sample number used to write x position on the LCD
+int timeBase = 0;      // define a variable for the x delay (90 for 50 Hz, 10 for 333, 0 for 1520)
+int samplingDelay = 0; // define a variable for the X scale / delay
+int sampleNo = 0;      // define a variable for the sample number used to collect x position into array
+int sampleHi = 0;      // Samples, which are above trigger level
+int posX = 0;          // define a variable for the sample number used to write x position on the LCD
 
 // array parameters
 #define arraySize displayWidth // how much samples are in the array
-int myArray[128];              // define an array to hold the data coming in
+int myArray[displayWidth];     // define an array to hold the data coming in
 int arrayMin = 0;
 int arrayAverage = 0;
 int arrayMax = 0;
@@ -63,19 +63,19 @@ void adjustADC()
 
   if (encoderState == 1)
   {
-    samplingDelay += 4;
+    samplingDelay -= 4;
     popupMillis = millis();
   }
   if (encoderState == 2)
   {
-    samplingDelay -= 4;
+    samplingDelay += 4;
     popupMillis = millis();
   }
 
   if (buttonState == 2)
-  popupMillis = millis(); // Show popup, if button licked
+    popupMillis = millis(); // Show popup, if button clicked
 
-  samplingDelay = constrain(samplingDelay, 0, 332); // 332 for 50Hz
+  samplingDelay = constrain(samplingDelay, 0, 132); // 132 for 50Hz
 }
 
 //
@@ -90,24 +90,35 @@ void readProbe()
   // wait until threshold hits trigger level
   sampleNo = 0;
   while ((analogRead(OSCILLOSCOPE_PIN) < triggerLevel) && (sampleNo < arraySize))
+    // while ((adc1_get_raw(ADC1_CHANNEL_4) < triggerLevel) && (sampleNo < arraySize))
     sampleNo++; // proceed after reaching array end, if no trigger level was detected!
   sampleNo = 0;
   while ((analogRead(OSCILLOSCOPE_PIN) > triggerLevel) && (sampleNo < arraySize))
+    // while ((adc1_get_raw(ADC1_CHANNEL_4) > triggerLevel) && (sampleNo < arraySize))
     sampleNo++;
 
   // fill the array as fast as possible with samples (therefore we have as less code as possible in this for - loop)
 
   // read samples and store them in array ----------------------------
   portDISABLE_INTERRUPTS();
-  startSampleMicros = micros();
+  // startSampleMicros = micros();
+  startSampleMicros = esp_timer_get_time();
   sampleNo = 0;
   while (sampleNo < arraySize)
   {
-    myArray[sampleNo] = analogRead(OSCILLOSCOPE_PIN); // read the value from the sensor:
+    myArray[sampleNo] = analogRead(OSCILLOSCOPE_PIN); // read the values (this provides a more stable timebase!)
+    //myArray[sampleNo] = adc1_get_raw(ADC1_CHANNEL_4); // read the values
+
     sampleNo++;
-    delayMicroseconds(samplingDelay);
+    // delayMicroseconds(samplingDelay);
+    int64_t m = esp_timer_get_time(); // slim replacement vor delayMicroseconds()
+    while (esp_timer_get_time() < m + samplingDelay)
+    {
+      NOP();
+    }
   }
-  endSampleMicros = micros();
+  // endSampleMicros = micros();
+  endSampleMicros = esp_timer_get_time();
   portENABLE_INTERRUPTS();
 
   // Calculate the required time for taking one sample
@@ -226,8 +237,13 @@ void drawDisplay()
 // ========================================
 //
 
-void oscilloscopeLoop()
+void oscilloscopeLoop(bool init)
 {
+  if (init)
+  {
+    samplingDelay = 132;     // Set ideal delay for standard RC Signals (132 for analogRead, 68 - 80 for adc1_get_raw)
+    popupMillis = millis(); // Show popup
+  }
 
   adjustADC();
 
