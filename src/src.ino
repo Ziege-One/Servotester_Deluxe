@@ -32,7 +32,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.15-beta.1"; // Software revision.
+char codeVersion[] = "0.15-beta.2"; // Software revision.
 
 //
 // =======================================================================================================
@@ -644,11 +644,12 @@ void ButtonRead()
   static unsigned long encoderSpeedMillis;
   static int lastEncoderSpeed;
 
-  if (millis() - encoderSpeedMillis > 100) // Encoder speed detection -----------------
+  if (millis() - encoderSpeedMillis > 150) // Encoder speed detection (150 was 100) -----------------
   {
     encoderSpeedMillis = millis();
     encoderSpeed = abs(encoder_read - lastEncoderSpeed);
-    encoderSpeed = constrain(encoderSpeed, 1, 4);
+    encoderSpeed = constrain(encoderSpeed, 1, 15); // (15 was 4)
+
     // Serial.println(encoderSpeed); // For encoder speed debuggging
 
     lastEncoderSpeed = encoder_read;
@@ -1929,13 +1930,13 @@ void MenuUpdate()
       RESET_EEPROM = 1;
     }
 
-    SERVO_MIN_STD = constrain(SERVO_MIN_STD, 800, 1200);
+    SERVO_MIN_STD = constrain(SERVO_MIN_STD, 750, 1200);
     SERVO_MIN_SANWA = constrain(SERVO_MIN_SANWA, 100, 200);
 
     SERVO_CENTER_STD = constrain(SERVO_CENTER_STD, 1400, 1600);
     SERVO_CENTER_SANWA = constrain(SERVO_CENTER_SANWA, 250, 350);
 
-    SERVO_MAX_STD = constrain(SERVO_MAX_STD, 1800, 2200);
+    SERVO_MAX_STD = constrain(SERVO_MAX_STD, 1800, 2250);
     SERVO_MAX_SANWA = constrain(SERVO_MAX_SANWA, 400, 500);
 
     servoModes(); // Refresh servo operation mode

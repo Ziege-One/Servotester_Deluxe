@@ -65,6 +65,9 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 
 ## Changelog
 
+## New in v0.15-beta.2:
+- Encoder acceleration enlarged
+
 ## New in v0.15-beta.1:
 - Battery voltage not actualized during power scale adjustment: bug fixed
 
