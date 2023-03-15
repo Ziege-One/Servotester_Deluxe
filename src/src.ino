@@ -32,7 +32,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.15-beta.2"; // Software revision.
+char codeVersion[] = "0.15-beta.3"; // Software revision.
 
 //
 // =======================================================================================================
@@ -184,7 +184,7 @@ enum
 int beepDuration;    // how long the beep will be
 
 // Oscilloscope pin
-#define OSCILLOSCOPE_PIN 32 // ADC channel 2 only!
+#define OSCILLOSCOPE_PIN 32 // ADC channel 2 only! Don't change it, oscilloscope is hardcoded!
 
 // Serial command pins for SBUS, IBUS -----
 #define COMMAND_RX 32 // pin 13
@@ -365,6 +365,23 @@ unsigned long readFreq(uint8_t pin, uint8_t state, unsigned long timeout)
   WAIT_FOR_PIN_STATE(state);                                          // Signal going high again
 
   return 1000000 / (clockCyclesToMicroseconds(cpu_hal_get_cycle_count() - pulse_start_cycle_count));
+}
+
+// Super fast analogRead alternative -----------------------------------------------------------
+// See: https://www.toptal.com/embedded/esp32-audio-sampling
+
+int IRAM_ATTR local_adc1_read(int channel)
+{
+  uint16_t adc_value;
+  SENS.sar_meas_start1.sar1_en_pad = (1 << channel); // only one channel is selected
+  while (SENS.sar_slave_addr1.meas_status != 0)
+    ;
+  SENS.sar_meas_start1.meas1_start_sar = 0;
+  SENS.sar_meas_start1.meas1_start_sar = 1;
+  while (SENS.sar_meas_start1.meas1_done_sar == 0)
+    ;
+  adc_value = SENS.sar_meas_start1.meas1_data_sar;
+  return adc_value;
 }
 
 // Additional headers --------------------------------------------------------------------------

@@ -65,6 +65,10 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 
 ## Changelog
 
+## New in v0.15-beta.3:
+- Oscilloscope is about 8 times faster now. Allows to analyze 1600 Hz SXR siganls way better
+- Frequency and duty cycle averaging
+
 ## New in v0.15-beta.2:
 - Encoder acceleration enlarged
 

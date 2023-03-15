@@ -20,7 +20,7 @@ int posX = 0;          // define a variable for the sample number used to write 
 
 // array parameters
 #define arraySize displayWidth // how much samples are in the array
-int myArray[displayWidth];     // define an array to hold the data coming in
+int myArray[arraySize];        // define an array to hold the data coming in
 int arrayMin = 0;
 int arrayAverage = 0;
 int arrayMax = 0;
@@ -40,8 +40,11 @@ float vPP = 0;     // peak to peak voltage
 unsigned long startSampleMicros = 0;
 unsigned long endSampleMicros = 0;
 unsigned long oneSampleDuration = 0;
-int signalFrequency = 0;
-int pulseWidth = 0;
+float signalFrequency1 = 0;
+float signalFrequency = 0;
+uint32_t pulseWidth1 = 0;
+uint32_t pulseWidth = 0;
+uint32_t averagingPasses = 10;
 
 // trigger
 int triggerLevel = 2048;
@@ -75,7 +78,7 @@ void adjustADC()
   if (buttonState == 2)
     popupMillis = millis(); // Show popup, if button clicked
 
-  samplingDelay = constrain(samplingDelay, 0, 132); // 132 for 50Hz
+  samplingDelay = constrain(samplingDelay, 0, 160); // 132 for 50Hz
 }
 
 //
@@ -86,43 +89,35 @@ void adjustADC()
 
 void readProbe()
 {
-
+  portDISABLE_INTERRUPTS();
   // wait until threshold hits trigger level
   sampleNo = 0;
-  while ((analogRead(OSCILLOSCOPE_PIN) < triggerLevel) && (sampleNo < arraySize))
-    // while ((adc1_get_raw(ADC1_CHANNEL_4) < triggerLevel) && (sampleNo < arraySize))
-    sampleNo++; // proceed after reaching array end, if no trigger level was detected!
+  while ((local_adc1_read(ADC1_CHANNEL_4) < triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
+    sampleNo++;                                                                 // proceed after reaching array end, if no trigger level was detected!
   sampleNo = 0;
-  while ((analogRead(OSCILLOSCOPE_PIN) > triggerLevel) && (sampleNo < arraySize))
-    // while ((adc1_get_raw(ADC1_CHANNEL_4) > triggerLevel) && (sampleNo < arraySize))
+  while ((local_adc1_read(ADC1_CHANNEL_4) > triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
     sampleNo++;
 
   // fill the array as fast as possible with samples (therefore we have as less code as possible in this for - loop)
 
   // read samples and store them in array ----------------------------
-  portDISABLE_INTERRUPTS();
-  // startSampleMicros = micros();
   startSampleMicros = esp_timer_get_time();
   sampleNo = 0;
   while (sampleNo < arraySize)
   {
-    myArray[sampleNo] = analogRead(OSCILLOSCOPE_PIN); // read the values (this provides a more stable timebase!)
-    //myArray[sampleNo] = adc1_get_raw(ADC1_CHANNEL_4); // read the values
-
+    myArray[sampleNo] = local_adc1_read(ADC1_CHANNEL_4); // Super fast custom analogRead alterantive
     sampleNo++;
-    // delayMicroseconds(samplingDelay);
     int64_t m = esp_timer_get_time(); // slim replacement vor delayMicroseconds()
     while (esp_timer_get_time() < m + samplingDelay)
     {
       NOP();
     }
   }
-  // endSampleMicros = micros();
   endSampleMicros = esp_timer_get_time();
   portENABLE_INTERRUPTS();
 
   // Calculate the required time for taking one sample
-  oneSampleDuration = (endSampleMicros - startSampleMicros) / arraySize;
+  oneSampleDuration = ((endSampleMicros - startSampleMicros) / arraySize);
 
   // calculate signal frequency using trigger level crossing
   sampleNo = 0;
@@ -136,13 +131,15 @@ void readProbe()
   }
   if (sampleHi > 0)
   {
-    signalFrequency = (1000000L / (sampleNo * oneSampleDuration)); // Hz = full waves per one million microseconds
+    signalFrequency1 = (1000000L / (sampleNo * oneSampleDuration)); // Hz = full waves per one million microseconds
+    signalFrequency = (signalFrequency * (averagingPasses - 1) + signalFrequency1) / averagingPasses;
   }
   else
   {
     signalFrequency = 0;
   }
-  pulseWidth = sampleHi * oneSampleDuration; // Pulsewidth calculation
+  pulseWidth1 = sampleHi * oneSampleDuration; // Pulsewidth calculation
+  pulseWidth = (pulseWidth * (averagingPasses - 1) + pulseWidth1) / averagingPasses;
 
   // invert the whole array
   for (sampleNo = 0; sampleNo < arraySize; sampleNo++)
@@ -168,8 +165,8 @@ void drawDisplay()
 
   static unsigned long previousUpdate;
 
-  if (millis() - previousUpdate >= 250)
-  { // every 250 ms
+  if (millis() - previousUpdate >= 200)
+  { // every 200 ms
     previousUpdate = millis();
 
     // clear old display content
@@ -208,7 +205,7 @@ void drawDisplay()
     if (triggerLevel > 0)
     { // if trigger is active
       display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.drawString(displayWidth / 2, 0, String(signalFrequency) + "Hz"); // Show signal frequency
+      display.drawString(displayWidth / 2, 0, String(signalFrequency, 0) + "Hz"); // Show signal frequency
     }
 
     display.setTextAlignment(TEXT_ALIGN_LEFT);
@@ -241,7 +238,7 @@ void oscilloscopeLoop(bool init)
 {
   if (init)
   {
-    samplingDelay = 132;     // Set ideal delay for standard RC Signals (132 for analogRead, 68 - 80 for adc1_get_raw)
+    samplingDelay = 160;    // Set ideal delay for standard RC Signals (132 for analogRead, 160 for adc1_get_raw)
     popupMillis = millis(); // Show popup
   }
 
