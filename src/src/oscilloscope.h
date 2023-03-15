@@ -12,6 +12,8 @@
 
 const int displayWidth = 128;
 
+const int oneSampleCalibration = 71; // Allows to fine adjust the pulsewith & frequency readings (About 71 µs)
+
 int timeBase = 0;      // define a variable for the x delay (90 for 50 Hz, 10 for 333, 0 for 1520)
 int samplingDelay = 0; // define a variable for the X scale / delay
 int sampleNo = 0;      // define a variable for the sample number used to collect x position into array
@@ -117,7 +119,7 @@ void readProbe()
   portENABLE_INTERRUPTS();
 
   // Calculate the required time for taking one sample
-  oneSampleDuration = ((endSampleMicros - startSampleMicros) / arraySize);
+  oneSampleDuration = ((endSampleMicros + oneSampleCalibration - startSampleMicros) / arraySize);
 
   // calculate signal frequency using trigger level crossing
   sampleNo = 0;
