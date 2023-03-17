@@ -3,6 +3,7 @@
 */
 
 #include "Arduino.h"
+#include "adcLookup.h"
 
 //
 // ========================================
@@ -80,7 +81,7 @@ void adjustADC()
   if (buttonState == 2)
     popupMillis = millis(); // Show popup, if button clicked
 
-  samplingDelay = constrain(samplingDelay, 0, 160); // 132 for 50Hz
+  samplingDelay = constrain(samplingDelay, 0, 300); // 160 for 50Hz
 }
 
 //
@@ -146,6 +147,9 @@ void readProbe()
   // invert the whole array
   for (sampleNo = 0; sampleNo < arraySize; sampleNo++)
   {
+#if defined ADC_LINEARITY_COMPENSATION
+    myArray[sampleNo] = (int)ADC_LUT[myArray[sampleNo]]; // get the calibrated value from Lookup table
+#endif
     myArray[sampleNo] = (adcMax - myArray[sampleNo]);
   }
 

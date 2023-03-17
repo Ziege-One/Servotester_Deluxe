@@ -32,7 +32,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.15-beta.3"; // Software revision.
+char codeVersion[] = "0.15-beta.4"; // Software revision.
 
 //
 // =======================================================================================================
@@ -381,6 +381,7 @@ int IRAM_ATTR local_adc1_read(int channel)
   while (SENS.sar_meas_start1.meas1_done_sar == 0)
     ;
   adc_value = SENS.sar_meas_start1.meas1_data_sar;
+  NOP(); // Some boards will crash in oscilloscope mode without this!
   return adc_value;
 }
 

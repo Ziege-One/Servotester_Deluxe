@@ -48,7 +48,6 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 
 
 ## TODO Software ****************************************
-- make servo center and endpoints flexible
 - remove PPM menu delay
 - Menu: Add beep on / off & servo stroke, remove servo stuff except frequency
 - Add servo output in signal read mode (decoder)
@@ -64,6 +63,11 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 ## ******************************************************
 
 ## Changelog
+
+## New in v0.15-beta.4:
+- Much nicer sine curves on the oscilloscope thanks to the new ADC_LINEARITY_COMPENSATION option in "0_generalSettings.h"
+- Bug fix: some units crashed in oscilloscope mode!
+- Sampling delay up to 300 µs
 
 ## New in v0.15-beta.3:
 - Oscilloscope is about 8 times faster now. Allows to analyze 1600 Hz SXR siganls way better
