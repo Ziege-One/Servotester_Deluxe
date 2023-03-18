@@ -32,7 +32,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.15-beta.4"; // Software revision.
+char codeVersion[] = "0.15.0"; // Software revision.
 
 //
 // =======================================================================================================
@@ -367,7 +367,7 @@ unsigned long readFreq(uint8_t pin, uint8_t state, unsigned long timeout)
   return 1000000 / (clockCyclesToMicroseconds(cpu_hal_get_cycle_count() - pulse_start_cycle_count));
 }
 
-// Super fast analogRead alternative -----------------------------------------------------------
+// Super fast analogRead() alternative ---------------------------------------------------------
 // See: https://www.toptal.com/embedded/esp32-audio-sampling
 
 int IRAM_ATTR local_adc1_read(int channel)
@@ -381,7 +381,6 @@ int IRAM_ATTR local_adc1_read(int channel)
   while (SENS.sar_meas_start1.meas1_done_sar == 0)
     ;
   adc_value = SENS.sar_meas_start1.meas1_data_sar;
-  NOP(); // Some boards will crash in oscilloscope mode without this!
   return adc_value;
 }
 

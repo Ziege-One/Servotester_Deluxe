@@ -32,7 +32,7 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 ![](documentation/pictures/calculator.jpg)
 
 ## Features
-- 5 channel PWM Signal generator for the following modes: STD, NOR, SSR, SUR, SXR
+- 5 channel PWM Signal generator for the following modes: STD, NOR, SHR, SSR, SUR, SXR
 - manual or automatic movement modes
 - PWM read function with pulsewidth and frequency display
 - PPM, SBUS and IBUS read function
@@ -49,8 +49,9 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 
 ## TODO Software ****************************************
 - remove PPM menu delay
-- Menu: Add beep on / off & servo stroke, remove servo stuff except frequency
+- Menu: Add beep on / off
 - Add servo output in signal read mode (decoder)
+- Add Signal generator on pin 26
 
 ## TODO Hardware ****************************************
 - Capacitor for 5V rail
@@ -64,26 +65,16 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 
 ## Changelog
 
-## New in v0.15-beta.4:
+## New in v0.15.0:
 - Much nicer sine curves on the oscilloscope thanks to the new ADC_LINEARITY_COMPENSATION option in "0_generalSettings.h"
-- Bug fix: some units crashed in oscilloscope mode!
-- Sampling delay up to 300 µs
-
-## New in v0.15-beta.3:
+- Oscilloscope sampling delay up to 300 µs
 - Oscilloscope is about 8 times faster now. Allows to analyze 1600 Hz SXR siganls way better
-- Frequency and duty cycle averaging
-
-## New in v0.15-beta.2:
+- Frequency and duty cycle averaging in oscilloscope
 - Encoder acceleration enlarged
-
-## New in v0.15-beta.1:
 - Battery voltage not actualized during power scale adjustment: bug fixed
-
-## New in v0.15-beta.0:
 - EEPROM factory reset option in settings menu
 - Servo endpoints and centerpoint are adjustable in 2 groups: STD, NOR, SHR and SSR, SUR, SXR and saved in EEPROM
-- Software version is displayed eralier (after logo)
-- Sligt oscilloscope optimization
+- Software version is displayed earlier (after logo)
 
 ## New in v0.14.0:
 - Oscilloscope added

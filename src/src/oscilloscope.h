@@ -93,7 +93,7 @@ void adjustADC()
 void readProbe()
 {
   portDISABLE_INTERRUPTS();
-  // wait until threshold hits trigger level
+  // wait until threshold hits trigger level -------------------------------------------------
   sampleNo = 0;
   while ((local_adc1_read(ADC1_CHANNEL_4) < triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
     sampleNo++;                                                                 // proceed after reaching array end, if no trigger level was detected!
@@ -103,12 +103,12 @@ void readProbe()
 
   // fill the array as fast as possible with samples (therefore we have as less code as possible in this for - loop)
 
-  // read samples and store them in array ----------------------------
+  // read samples and store them in array ---------------------------------------------------
   startSampleMicros = esp_timer_get_time();
   sampleNo = 0;
   while (sampleNo < arraySize)
   {
-    myArray[sampleNo] = local_adc1_read(ADC1_CHANNEL_4); // Super fast custom analogRead alterantive
+    myArray[sampleNo] = local_adc1_read(ADC1_CHANNEL_4); // Super fast custom analogRead() alterantive
     sampleNo++;
     int64_t m = esp_timer_get_time(); // slim replacement vor delayMicroseconds()
     while (esp_timer_get_time() < m + samplingDelay)
@@ -119,7 +119,7 @@ void readProbe()
   endSampleMicros = esp_timer_get_time();
   portENABLE_INTERRUPTS();
 
-  // Calculate the required time for taking one sample
+  // Calculate the required time for taking one sample -------------------------------------
   oneSampleDuration = ((endSampleMicros + oneSampleCalibration - startSampleMicros) / arraySize);
 
   // calculate signal frequency using trigger level crossing
@@ -144,7 +144,7 @@ void readProbe()
   pulseWidth1 = sampleHi * oneSampleDuration; // Pulsewidth calculation
   pulseWidth = (pulseWidth * (averagingPasses - 1) + pulseWidth1) / averagingPasses;
 
-  // invert the whole array
+  // Calibrate & invert the whole array -----------------------------------------------------
   for (sampleNo = 0; sampleNo < arraySize; sampleNo++)
   {
 #if defined ADC_LINEARITY_COMPENSATION
@@ -153,7 +153,7 @@ void readProbe()
     myArray[sampleNo] = (adcMax - myArray[sampleNo]);
   }
 
-  // compute array min, average, max values
+  // compute array min, average, max values ------------------------------------------------
   arrayMin = samplingArray.getMin();
   arrayMax = samplingArray.getMax();
   arrayAverage = samplingArray.getAverage();
@@ -175,11 +175,11 @@ void drawDisplay()
   { // every 200 ms
     previousUpdate = millis();
 
-    // clear old display content
+    // clear old display contentmt
     display.clear();
 
     // draw reading line
-    for (posX = 0; posX < displayWidth; posX += 1)
+    for (posX = 1; posX < displayWidth; posX += 1)  // looks better, if posX = 0 is not displayed!
     { // for loop draws displayWidth pixels
       display.drawLine((posX * OledScaleX) - (OledScaleX - 1), myArray[posX - 1] / scaleY - scopeOffsetY, posX * OledScaleX, myArray[posX] / scaleY - scopeOffsetY);
     }
