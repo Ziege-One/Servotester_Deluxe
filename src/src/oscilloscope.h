@@ -179,8 +179,8 @@ void drawDisplay()
     display.clear();
 
     // draw reading line
-    for (posX = 1; posX < displayWidth; posX += 1)  // looks better, if posX = 0 is not displayed!
-    { // for loop draws displayWidth pixels
+    for (posX = 1; posX < displayWidth; posX += 1) // looks better, if posX = 0 is not displayed!
+    {                                              // for loop draws displayWidth pixels
       display.drawLine((posX * OledScaleX) - (OledScaleX - 1), myArray[posX - 1] / scaleY - scopeOffsetY, posX * OledScaleX, myArray[posX] / scaleY - scopeOffsetY);
     }
 
@@ -244,8 +244,9 @@ void oscilloscopeLoop(bool init)
 {
   if (init)
   {
-    samplingDelay = 160;    // Set ideal delay for standard RC Signals (132 for analogRead, 160 for adc1_get_raw)
-    popupMillis = millis(); // Show popup
+    adc1_get_raw(ADC1_CHANNEL_4); // required for correct ADC configuration
+    samplingDelay = 160;          // Set ideal delay for standard RC Signals (132 for analogRead, 160 for adc1_get_raw)
+    popupMillis = millis();       // Show popup
   }
 
   adjustADC();

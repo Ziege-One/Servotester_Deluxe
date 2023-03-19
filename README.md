@@ -51,19 +51,23 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 - remove PPM menu delay
 - Menu: Add beep on / off
 - Add servo output in signal read mode (decoder)
-- Add Signal generator on pin 26
+- Add Signal generator on GPIO 26
 
 ## TODO Hardware ****************************************
 - Capacitor for 5V rail
 - Capacitor for smooth upload
-- Anti backfeed diode with jumper
+- Anti backfeed diode
 - Room for buzzer
-- Connector for gyro sensor
+- I2C Connector for gyro sensor
 - Reset button
 
 ## ******************************************************
 
 ## Changelog
+
+## New in v0.16-beta.0:
+- Signal generator added on GPIO 26 (frequency setting still buggy, triangle not working)
+- Oscilloscope potentially crashing on some devices: bugfix attempt
 
 ## New in v0.15.0:
 - Much nicer sine curves on the oscilloscope thanks to the new ADC_LINEARITY_COMPENSATION option in "0_generalSettings.h"

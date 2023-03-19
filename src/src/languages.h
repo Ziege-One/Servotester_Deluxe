@@ -44,6 +44,8 @@ String automaticModeString[] {"Automatic Mode", "Automatik Modus","Mode automat.
 String oscillateServoString[] {"(Oscillate Servo)", "(Servo pendeln)", "(Osciller Servo)"};
 String readOscilloscopeString[] {"Oscilloscope CH5", "Oszilloskop CH5", "Oscilloscope CH5"};
 String readOscilloscopeString2[] {"0- 3.3V Signals only", "Nur 0 - 3.3V Signale", "Signaux 0 - 3.3V uniquem."};
+String signalGeneratorString[] {"Signal Generator", "Signal Generator", "Générat. de signal"};
+String signalGeneratorString2[] {"0 - 3.3V GPIO 26", "0 - 3.3V  GPIO 26", "0 - 3.3V  GPIO 26"};
 
 // Setup
 String passwordString[] {"Password:", "Passwort:", "Mot de passe:"};

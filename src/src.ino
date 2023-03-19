@@ -32,7 +32,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.15.0"; // Software revision.
+char codeVersion[] = "0.16-beta.0"; // Software revision.
 
 //
 // =======================================================================================================
@@ -223,10 +223,11 @@ enum
   SBUS_lesen_Auswahl = 5,
   IBUS_lesen_Auswahl = 6,
   Oscilloscope_Auswahl = 7,
-  Rechner_Auswahl = 8,
-  Pong_Auswahl = 9,
-  Flappy_Birds_Auswahl = 10,
-  Einstellung_Auswahl = 11,
+  SignalGenerator_Auswahl = 8,
+  Rechner_Auswahl = 9,
+  Pong_Auswahl = 10,
+  Flappy_Birds_Auswahl = 11,
+  Einstellung_Auswahl = 12,
   //
   Servotester_Menu = 51,
   Automatik_Modus_Menu = 52,
@@ -235,10 +236,11 @@ enum
   SBUS_lesen_Menu = 55,
   IBUS_lesen_Menu = 56,
   Oscilloscope_Menu = 57,
-  Rechner_Menu = 58,
-  Flappy_Birds_Menu = 59,
-  Pong_Menu = 60,
-  Einstellung_Menu = 61
+  SignalGenerator_Menu = 58,
+  Rechner_Menu = 59,
+  Flappy_Birds_Menu = 60,
+  Pong_Menu = 61,
+  Einstellung_Menu = 62
 };
 
 //-Menu 52 Automatik Modus
@@ -385,12 +387,13 @@ int IRAM_ATTR local_adc1_read(int channel)
 }
 
 // Additional headers --------------------------------------------------------------------------
-#include "src/pong.h"         // A little pong game :-)
-#include "src/flappyBirds.h"  // A little flappy birds game :-)
-#include "src/calculator.h"   // A handy calculator
-#include "src/webInterface.h" // Configuration website
-#include "src/servoModes.h"   // Servo operation profiles
-#include "src/oscilloscope.h" // A handy oscilloscope
+#include "src/pong.h"            // A little pong game :-)
+#include "src/flappyBirds.h"     // A little flappy birds game :-)
+#include "src/calculator.h"      // A handy calculator
+#include "src/webInterface.h"    // Configuration website
+#include "src/servoModes.h"      // Servo operation profiles
+#include "src/oscilloscope.h"    // A handy oscilloscope
+#include "src/signalGenerator.h" // A handy signal generator
 
 //
 // =======================================================================================================
@@ -940,6 +943,33 @@ void MenuUpdate()
     if (buttonState == 2)
     {
       Menu = Oscilloscope_Menu;
+    }
+    break;
+
+    // Signal Generator Auswahl *********************************************************
+  case SignalGenerator_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu >");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, signalGeneratorString[LANGUAGE]);
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(64, 45, signalGeneratorString2[LANGUAGE]);
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu++;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = SignalGenerator_Menu;
     }
     break;
 
@@ -1525,6 +1555,32 @@ void MenuUpdate()
     if (buttonState == 1) // Back
     {
       Menu = Oscilloscope_Auswahl;
+      SetupMenu = false;
+    }
+    break;
+
+    // Signal Generator *********************************************************
+  case SignalGenerator_Menu:
+
+    if (!SetupMenu) // This stuff is only executed once
+    {
+      pinMode(servopin[0], INPUT);
+      pinMode(servopin[1], INPUT);
+      pinMode(servopin[2], INPUT);
+      pinMode(servopin[3], INPUT);
+      pinMode(servopin[4], INPUT);
+      pinMode(OSCILLOSCOPE_PIN, INPUT);
+      signalGeneratorLoop(true); // Init signal generator
+      SetupMenu = true;
+    }
+    else
+    {
+      signalGeneratorLoop(false); // Loop signal generator
+    }
+
+    if (buttonState == 1) // Back
+    {
+      Menu = SignalGenerator_Auswahl;
       SetupMenu = false;
     }
     break;
