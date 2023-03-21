@@ -37,6 +37,7 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 - PWM read function with pulsewidth and frequency display
 - PPM, SBUS and IBUS read function
 - Oscilloscope for 3.3V RC signals, PWM and PPM signals can be visualized well
+- Signal generator on GPIO 26
 - Calculator
 - P O N G game
 - Flappy Birds game
@@ -51,7 +52,7 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 - remove PPM menu delay
 - Menu: Add beep on / off
 - Add servo output in signal read mode (decoder)
-- Add Signal generator on GPIO 26
+- Improve Signal generator
 
 ## TODO Hardware ****************************************
 - Capacitor for 5V rail
@@ -64,6 +65,12 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 ## ******************************************************
 
 ## Changelog
+
+## New in v0.16-beta.1:
+- Wifi can be enabled and disabled without reboot 
+- Oscilloscope crashing, if WiFi off: no fix so far, leave WiFi enabled...
+- Temporary fix: #define FAST_ADC in 0_general settings.h (only use it, if WiFi is always on)
+- Web interface enhanced
 
 ## New in v0.16-beta.0:
 - Signal generator added on GPIO 26 (frequency setting still buggy, triangle not working)

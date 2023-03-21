@@ -170,6 +170,30 @@ void webInterface()
               }
               if (header.indexOf("GET /60/on") >= 0)
               {
+                Menu = IBUS_lesen_Menu;
+              }
+              if (header.indexOf("GET /70/on") >= 0)
+              {
+                Menu = Oscilloscope_Menu;
+              }
+              if (header.indexOf("GET /80/on") >= 0)
+              {
+                Menu = SignalGenerator_Menu;
+              }
+              if (header.indexOf("GET /90/on") >= 0)
+              {
+                Menu = Rechner_Menu;
+              }
+              if (header.indexOf("GET /100/on") >= 0)
+              {
+                Menu = Pong_Menu;
+              }
+              if (header.indexOf("GET /110/on") >= 0)
+              {
+                Menu = Flappy_Birds_Menu;
+              }
+              if (header.indexOf("GET /120/on") >= 0)
+              {
                 Menu = Einstellung_Menu;
               }
               if (header.indexOf("GET /save/on") >= 0)
@@ -378,10 +402,17 @@ void webInterface()
                 client.println("<h2>Menu</h2>");
                 client.println("<p><a href=\"/10/on\"><button class=\"button button1\">Servotester</button></a></p>");
                 client.println("<p><a href=\"/20/on\"><button class=\"button button1\">Automatik Modus</button></a></p>");
-                client.println("<p><a href=\"/30/on\"><button class=\"button button1\">Impuls lesen</button></a></p>");
-                client.println("<p><a href=\"/40/on\"><button class=\"button button1\">Multiswitch lesen</button></a></p>");
+                client.println("<p><a href=\"/30/on\"><button class=\"button button1\">PWM Impuls lesen</button></a></p>");
+                client.println("<p><a href=\"/40/on\"><button class=\"button button1\">PPM Multiswitch lesen</button></a></p>");
                 client.println("<p><a href=\"/50/on\"><button class=\"button button1\">SBUS lesen</button></a></p>");
-                client.println("<p><a href=\"/60/on\"><button class=\"button button1\">Einstellung</button></a></p>");
+                client.println("<p><a href=\"/60/on\"><button class=\"button button1\">IBUS lesen</button></a></p>");
+                client.println("<p><a href=\"/70/on\"><button class=\"button button1\">Oszilloskop</button></a></p>");
+                client.println("<p><a href=\"/80/on\"><button class=\"button button1\">Signal Generator</button></a></p>");
+                client.println("<p><a href=\"/90/on\"><button class=\"button button1\">Rechner</button></a></p>");
+                client.println("<p><a href=\"/100/on\"><button class=\"button button1\">P O N G</button></a></p>");
+                client.println("<p><a href=\"/110/on\"><button class=\"button button1\">Flappy Birds</button></a></p>");
+
+                client.println("<p><a href=\"/120/on\"><button class=\"button button1\">Einstellung</button></a></p>");
                 break; // Wird nicht benötigt, wenn Statement(s) vorhanden sind
               }
 

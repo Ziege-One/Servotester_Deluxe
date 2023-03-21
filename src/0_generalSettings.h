@@ -32,3 +32,4 @@ wifi_power_t cpType = WIFI_POWER_13dBm; // Only use values from above!
 // ADC settings -------------------------------------------------------------------------------------------------
 // See: https://github.com/e-tinkers/esp32-adc-calibrate
 #define ADC_LINEARITY_COMPENSATION // Use the lookup table in adcLookup.h in order to improve the oscilloscope linearity
+#define FAST_ADC // ADC is about twice as fast, if defined, but scope will crash, if WiFi is disabled! Further investigation needed.

@@ -95,11 +95,23 @@ void readProbe()
   portDISABLE_INTERRUPTS();
   // wait until threshold hits trigger level -------------------------------------------------
   sampleNo = 0;
+#if defined FAST_ADC
   while ((local_adc1_read(ADC1_CHANNEL_4) < triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
-    sampleNo++;                                                                 // proceed after reaching array end, if no trigger level was detected!
+#else
+  while ((adc1_get_raw(ADC1_CHANNEL_4) < triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
+#endif
+  {
+    sampleNo++; // proceed after reaching array end, if no trigger level was detected!
+  }
   sampleNo = 0;
+#if defined FAST_ADC
   while ((local_adc1_read(ADC1_CHANNEL_4) > triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
+#else
+  while ((adc1_get_raw(ADC1_CHANNEL_4) > triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
+#endif
+  {
     sampleNo++;
+  }
 
   // fill the array as fast as possible with samples (therefore we have as less code as possible in this for - loop)
 
@@ -108,7 +120,11 @@ void readProbe()
   sampleNo = 0;
   while (sampleNo < arraySize)
   {
+#if defined FAST_ADC
     myArray[sampleNo] = local_adc1_read(ADC1_CHANNEL_4); // Super fast custom analogRead() alterantive
+#else
+    myArray[sampleNo] = adc1_get_raw(ADC1_CHANNEL_4);                        // slower, but also working, if WiFi is disabled
+#endif
     sampleNo++;
     int64_t m = esp_timer_get_time(); // slim replacement vor delayMicroseconds()
     while (esp_timer_get_time() < m + samplingDelay)

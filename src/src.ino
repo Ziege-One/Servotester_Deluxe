@@ -32,7 +32,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.16-beta.0"; // Software revision.
+char codeVersion[] = "0.16-beta.1"; // Software revision.
 
 //
 // =======================================================================================================
@@ -135,6 +135,8 @@ int SERVO_CENTER_STD;   // SERVO µs Mitte Wert im Servotester Modus (Standard)
 int SERVO_MAX_SANWA;    // SERVO µs Max Wert im Servotester Modus (Sanwa)
 int SERVO_MIN_SANWA;    // SERVO µs Min Wert im Servotester Modus (Sanwa)
 int SERVO_CENTER_SANWA; // SERVO µs Mitte Wert im Servotester Modus (Sanwa)
+
+bool WiFiChanged;
 
 // Encoder + button
 ESP32Encoder encoder;
@@ -445,11 +447,77 @@ void setupMcpwm()
 // MAIN ARDUINO SETUP (1x during startup)
 // =======================================================================================================
 //
+void wifiSetup()
+{
+  if (WIFI_ON == 1)
+  { // Wifi Ein
+    // Print local IP address and start web server
+    Serial.println(connectingAccessPointString[LANGUAGE]);
+    WiFi.mode(WIFI_STA);
+    WiFi.softAP(ssid, password);
+
+    IPAddress IP = WiFi.softAPIP();
+    Serial.print(apIpAddressString[LANGUAGE]);
+    Serial.println(IP);
+
+    // Show IP address
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(0, 10, WiFiOnString[LANGUAGE]);
+    display.drawString(0, 26, ipAddressString[LANGUAGE]);
+    display.drawString(0, 42, IP.toString());
+    display.display();
+    delay(1500);
+
+    // Show SSID & Password
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(0, 0, "SSID: ");
+    display.drawString(0, 16, ssid);
+    display.drawString(0, 32, passwordString[LANGUAGE]);
+    display.drawString(0, 48, password);
+    display.display();
+    delay(2000);
+
+    Serial.printf("\nWiFi Tx Power Level: %u", WiFi.getTxPower());
+    WiFi.setTxPower(cpType); // WiFi and ESP-Now power according to "0_generalSettings.h"
+    Serial.printf("\nWiFi Tx Power Level changed to: %u\n\n", WiFi.getTxPower());
+
+    server.begin(); // Start Webserver
+  }
+
+  // WiFi off
+  else
+  {
+
+    // WiFi.disconnect();
+    server.end();
+    WiFi.mode(WIFI_OFF);
+    Serial.println("");
+    Serial.println(WiFiOffString[LANGUAGE]);
+
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(0, 10, "WiFi");
+    display.drawString(0, 26, offString[LANGUAGE]);
+    display.display();
+    delay(1500);
+  }
+}
+
+//
+// =======================================================================================================
+// MAIN ARDUINO SETUP (1x during startup)
+// =======================================================================================================
+//
 void setup()
 {
 
   // Watchdog timers need to be disabled, if task 1 is running without delay(1)
-  disableCore0WDT();
+  // disableCore0WDT();
 
   // Serial setup
   Serial.begin(115200); // USB serial (for DEBUG)
@@ -524,58 +592,7 @@ void setup()
   display.display();
   delay(4000);
 
-  if (WIFI_ON == 1)
-  { // Wifi Ein
-    // Print local IP address and start web server
-    Serial.println(connectingAccessPointString[LANGUAGE]);
-    WiFi.softAP(ssid, password);
-
-    IPAddress IP = WiFi.softAPIP();
-    Serial.print(apIpAddressString[LANGUAGE]);
-    Serial.println(IP);
-
-    // Show IP address
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(0, 10, WiFiOnString[LANGUAGE]);
-    display.drawString(0, 26, ipAddressString[LANGUAGE]);
-    display.drawString(0, 42, IP.toString());
-    display.display();
-    delay(1500);
-
-    // Show SSID & Password
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(0, 0, "SSID: ");
-    display.drawString(0, 16, ssid);
-    display.drawString(0, 32, passwordString[LANGUAGE]);
-    display.drawString(0, 48, password);
-    display.display();
-    delay(2000);
-
-    Serial.printf("\nWiFi Tx Power Level: %u", WiFi.getTxPower());
-    WiFi.setTxPower(cpType); // WiFi and ESP-Now power according to "0_generalSettings.h"
-    Serial.printf("\nWiFi Tx Power Level changed to: %u\n\n", WiFi.getTxPower());
-
-    server.begin(); // Start Webserver
-  }
-
-  // WiFi off
-  else
-  {
-    Serial.println("");
-    Serial.println(WiFiOffString[LANGUAGE]);
-
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(0, 10, "WiFi");
-    display.drawString(0, 26, offString[LANGUAGE]);
-    display.display();
-    delay(1500);
-  }
+  wifiSetup();
 
   encoder.setCount(Menu);
   servo_pos[0] = 1500;
@@ -1833,6 +1850,7 @@ void MenuUpdate()
         {
         case 0:
           WIFI_ON--;
+          WiFiChanged = true;
           break;
         case 1:
           RESET_EEPROM--;
@@ -1888,6 +1906,7 @@ void MenuUpdate()
         {
         case 0:
           WIFI_ON++;
+          WiFiChanged = true;
           break;
         case 1:
           RESET_EEPROM++;
@@ -2033,6 +2052,11 @@ void MenuUpdate()
         else
         {
           eepromWrite(); // Safe changes
+        }
+        if (WiFiChanged)
+        {
+          WiFiChanged = false;
+          wifiSetup();
         }
       }
       else
@@ -2245,11 +2269,11 @@ void loop()
 // 1st MAIN TASK, RUNNING ON CORE 0 (Interrupts are running on this core as well)
 // =======================================================================================================
 //
-
+/*
 void Task1code(void *pvParameters) // TODO, testing only!
 {
   for (;;)
   {
     // vTaskDelay(1);          // REQUIRED TO RESET THE WATCH DOG TIMER IF WORKFLOW DOES NOT CONTAIN ANY OTHER DELAY
   }
-}
+}*/
