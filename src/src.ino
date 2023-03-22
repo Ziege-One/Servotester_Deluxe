@@ -32,7 +32,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.16-beta.1"; // Software revision.
+char codeVersion[] = "0.16-beta.2"; // Software revision.
 
 //
 // =======================================================================================================
@@ -75,12 +75,14 @@ Array                                         1.0.0
 
 // No need to install these, they come with the ESP32 board definition
 #include <WiFi.h>
-#include <EEPROM.h>       // for non volatile storage
-#include <Esp.h>          // for displaying memory information
-#include "rom/rtc.h"      // for displaying reset reason
-#include "driver/mcpwm.h" // for servo PWM output
-#include "soc/rtc_wdt.h"  // for watchdog timer
-#include <string>         // std::string, std::stof
+#include <EEPROM.h>          // for non volatile storage
+#include <Esp.h>             // for displaying memory information
+#include "rom/rtc.h"         // for displaying reset reason
+#include "driver/mcpwm.h"    // for servo PWM output
+#include "soc/rtc_wdt.h"     // for watchdog timer
+#include <soc/sens_reg.h>    // for custom ADC function
+#include <soc/sens_struct.h> // for custom ADC function
+#include <string>            // std::string, std::stof
 using namespace std;
 
 // Project specific includes
@@ -186,7 +188,7 @@ enum
 int beepDuration;    // how long the beep will be
 
 // Oscilloscope pin
-#define OSCILLOSCOPE_PIN 32 // ADC channel 2 only! Don't change it, oscilloscope is hardcoded!
+#define OSCILLOSCOPE_PIN 32 // ADC 1 pin only! Don't change it, oscilloscope is hardcoded!
 
 // Serial command pins for SBUS, IBUS -----
 #define COMMAND_RX 32 // pin 13
@@ -396,6 +398,7 @@ int IRAM_ATTR local_adc1_read(int channel)
 #include "src/servoModes.h"      // Servo operation profiles
 #include "src/oscilloscope.h"    // A handy oscilloscope
 #include "src/signalGenerator.h" // A handy signal generator
+#include "src/systemImages.h"    // Symbols
 
 //
 // =======================================================================================================
@@ -444,7 +447,7 @@ void setupMcpwm()
 
 //
 // =======================================================================================================
-// MAIN ARDUINO SETUP (1x during startup)
+// WiFi SETUP
 // =======================================================================================================
 //
 void wifiSetup()
@@ -459,6 +462,8 @@ void wifiSetup()
     IPAddress IP = WiFi.softAPIP();
     Serial.print(apIpAddressString[LANGUAGE]);
     Serial.println(IP);
+
+    digitalWrite(BUZZER_PIN, LOW); // Buzzer off
 
     // Show IP address
     display.clear();
@@ -491,12 +496,12 @@ void wifiSetup()
   // WiFi off
   else
   {
-
-    // WiFi.disconnect();
     server.end();
     WiFi.mode(WIFI_OFF);
     Serial.println("");
     Serial.println(WiFiOffString[LANGUAGE]);
+
+    digitalWrite(BUZZER_PIN, LOW); // Buzzer off
 
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_LEFT);
@@ -504,7 +509,7 @@ void wifiSetup()
     display.drawString(0, 10, "WiFi");
     display.drawString(0, 26, offString[LANGUAGE]);
     display.display();
-    delay(1500);
+    delay(700);
   }
 }
 
@@ -764,6 +769,7 @@ void MenuUpdate()
     display.drawString(0, 10, String(SERVO_Hz));
     display.setTextAlignment(TEXT_ALIGN_RIGHT);
     display.drawString(128, 0, servoMode);
+    drawWiFi();
     if (batteryDetected)
     {
       display.setTextAlignment(TEXT_ALIGN_RIGHT);
@@ -815,6 +821,7 @@ void MenuUpdate()
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25, automaticModeString[LANGUAGE]);
     display.drawString(64, 45, oscillateServoString[LANGUAGE]);
+    drawWiFi();
     display.display();
 
     if (encoderState == 1)
@@ -841,6 +848,7 @@ void MenuUpdate()
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25, PwmImpulseString[LANGUAGE]);
     display.drawString(64, 45, readCh1Ch5String[LANGUAGE]);
+    drawWiFi();
     display.display();
 
     if (encoderState == 1)
@@ -867,6 +875,7 @@ void MenuUpdate()
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25, "PPM Multiswitch");
     display.drawString(64, 45, readCh5String[LANGUAGE]);
+    drawWiFi();
     display.display();
 
     if (encoderState == 1)
@@ -893,6 +902,7 @@ void MenuUpdate()
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25, readSbusString[LANGUAGE]);
     display.drawString(64, 45, "CH5");
+    drawWiFi();
     display.display();
 
     if (encoderState == 1)
@@ -919,6 +929,7 @@ void MenuUpdate()
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25, readIbusString[LANGUAGE]);
     display.drawString(64, 45, "CH5");
+    drawWiFi();
     display.display();
 
     if (encoderState == 1)
@@ -946,6 +957,7 @@ void MenuUpdate()
     display.drawString(64, 25, readOscilloscopeString[LANGUAGE]);
     display.setFont(ArialMT_Plain_10);
     display.drawString(64, 45, readOscilloscopeString2[LANGUAGE]);
+    drawWiFi();
     display.display();
 
     if (encoderState == 1)
@@ -973,6 +985,7 @@ void MenuUpdate()
     display.drawString(64, 25, signalGeneratorString[LANGUAGE]);
     display.setFont(ArialMT_Plain_10);
     display.drawString(64, 45, signalGeneratorString2[LANGUAGE]);
+    drawWiFi();
     display.display();
 
     if (encoderState == 1)
@@ -1000,6 +1013,7 @@ void MenuUpdate()
     display.drawString(64, 25, calculatorString[LANGUAGE]);
     display.setFont(ArialMT_Plain_10);
     display.drawString(64, 45, "No Warranty Edition");
+    drawWiFi();
     display.display();
 
     if (encoderState == 1)
@@ -1027,6 +1041,7 @@ void MenuUpdate()
     display.drawString(64, 25, "P  O  N  G");
     display.setFont(ArialMT_Plain_10);
     display.drawString(64, 45, "TheDIYGuy999 Edition");
+    drawWiFi();
     display.display();
 
     if (encoderState == 1)
@@ -1054,6 +1069,7 @@ void MenuUpdate()
     display.drawString(64, 25, "Flappy Birds");
     display.setFont(ArialMT_Plain_10);
     display.drawString(64, 45, "TheDIYGuy999 Edition");
+    drawWiFi();
     display.display();
 
     disableButtonRead = false; // Re enable regular button read function
@@ -1081,6 +1097,7 @@ void MenuUpdate()
     display.drawString(64, 0, "< Menu  ");
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25, settingsString[LANGUAGE]);
+    drawWiFi();
     display.display();
 
     if (encoderState == 1)

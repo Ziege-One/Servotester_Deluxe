@@ -66,6 +66,10 @@ Support thread (in German and English): https://www.rc-modellbau-portal.de/index
 
 ## Changelog
 
+## New in v0.16-beta.2:
+- No very long beep during WiFi enable / disable anymore
+- WiFi symbol shown, if enabled
+
 ## New in v0.16-beta.1:
 - Wifi can be enabled and disabled without reboot 
 - Oscilloscope crashing, if WiFi off: no fix so far, leave WiFi enabled...

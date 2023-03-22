@@ -6,9 +6,9 @@
 #include "adcLookup.h"
 
 //
-// ========================================
+// =======================================================================================================
 // GLOBAL VARIABLES
-// ========================================
+// =======================================================================================================
 //
 
 const int displayWidth = 128;
@@ -55,14 +55,15 @@ byte triggerMode = 0;
 
 // Display
 unsigned long popupMillis;
+bool takeNewSamples;
 
 // menu
 byte menu = 1; // the current menu item
 
 //
-// ========================================
+// =======================================================================================================
 // ADSJUST ADC TIMEBASE
-// ========================================
+// =======================================================================================================
 //
 void adjustADC()
 {
@@ -85,101 +86,105 @@ void adjustADC()
 }
 
 //
-// ========================================
+// =======================================================================================================
 // READ PROBE
-// ========================================
+// =======================================================================================================
 //
 
 void readProbe()
 {
-  portDISABLE_INTERRUPTS();
-  // wait until threshold hits trigger level -------------------------------------------------
-  sampleNo = 0;
-#if defined FAST_ADC
-  while ((local_adc1_read(ADC1_CHANNEL_4) < triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
-#else
-  while ((adc1_get_raw(ADC1_CHANNEL_4) < triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
-#endif
+  if (takeNewSamples) // Only take samples, if required
   {
-    sampleNo++; // proceed after reaching array end, if no trigger level was detected!
-  }
-  sampleNo = 0;
+    // takeNewSamples = false; // Testing only: PPM triggering is unstable this way, TODO
+    portDISABLE_INTERRUPTS();
+    // wait until threshold hits trigger level -------------------------------------------------
+    sampleNo = 0;
 #if defined FAST_ADC
-  while ((local_adc1_read(ADC1_CHANNEL_4) > triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
+    while ((local_adc1_read(ADC1_CHANNEL_4) < triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
 #else
-  while ((adc1_get_raw(ADC1_CHANNEL_4) > triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
+    while ((adc1_get_raw(ADC1_CHANNEL_4) < triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
 #endif
-  {
-    sampleNo++;
-  }
-
-  // fill the array as fast as possible with samples (therefore we have as less code as possible in this for - loop)
-
-  // read samples and store them in array ---------------------------------------------------
-  startSampleMicros = esp_timer_get_time();
-  sampleNo = 0;
-  while (sampleNo < arraySize)
-  {
-#if defined FAST_ADC
-    myArray[sampleNo] = local_adc1_read(ADC1_CHANNEL_4); // Super fast custom analogRead() alterantive
-#else
-    myArray[sampleNo] = adc1_get_raw(ADC1_CHANNEL_4);                        // slower, but also working, if WiFi is disabled
-#endif
-    sampleNo++;
-    int64_t m = esp_timer_get_time(); // slim replacement vor delayMicroseconds()
-    while (esp_timer_get_time() < m + samplingDelay)
     {
-      NOP();
+      sampleNo++; // proceed after reaching array end, if no trigger level was detected!
     }
-  }
-  endSampleMicros = esp_timer_get_time();
-  portENABLE_INTERRUPTS();
-
-  // Calculate the required time for taking one sample -------------------------------------
-  oneSampleDuration = ((endSampleMicros + oneSampleCalibration - startSampleMicros) / arraySize);
-
-  // calculate signal frequency using trigger level crossing
-  sampleNo = 0;
-  sampleHi = 0;
-  while (myArray[sampleNo] < triggerLevel && (sampleNo < (arraySize - 1)))
-    sampleNo++;
-  while (myArray[sampleNo] > triggerLevel && sampleNo < (arraySize - 1))
-  {
-    sampleNo++;
-    sampleHi++; // Samples above zero crossing for pulsewidth calculation
-  }
-  if (sampleHi > 0)
-  {
-    signalFrequency1 = (1000000L / (sampleNo * oneSampleDuration)); // Hz = full waves per one million microseconds
-    signalFrequency = (signalFrequency * (averagingPasses - 1) + signalFrequency1) / averagingPasses;
-  }
-  else
-  {
-    signalFrequency = 0;
-  }
-  pulseWidth1 = sampleHi * oneSampleDuration; // Pulsewidth calculation
-  pulseWidth = (pulseWidth * (averagingPasses - 1) + pulseWidth1) / averagingPasses;
-
-  // Calibrate & invert the whole array -----------------------------------------------------
-  for (sampleNo = 0; sampleNo < arraySize; sampleNo++)
-  {
-#if defined ADC_LINEARITY_COMPENSATION
-    myArray[sampleNo] = (int)ADC_LUT[myArray[sampleNo]]; // get the calibrated value from Lookup table
+    sampleNo = 0;
+#if defined FAST_ADC
+    while ((local_adc1_read(ADC1_CHANNEL_4) > triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
+#else
+    while ((adc1_get_raw(ADC1_CHANNEL_4) > triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
 #endif
-    myArray[sampleNo] = (adcMax - myArray[sampleNo]);
-  }
+    {
+      sampleNo++;
+    }
 
-  // compute array min, average, max values ------------------------------------------------
-  arrayMin = samplingArray.getMin();
-  arrayMax = samplingArray.getMax();
-  arrayAverage = samplingArray.getAverage();
-  vPP = (arrayMax - arrayMin) * voltMax / adcMax;
+    // fill the array as fast as possible with samples (therefore we have as less code as possible in this for - loop)
+
+    // read samples and store them in array ---------------------------------------------------
+    startSampleMicros = esp_timer_get_time();
+    sampleNo = 0;
+    while (sampleNo < arraySize)
+    {
+#if defined FAST_ADC
+      myArray[sampleNo] = local_adc1_read(ADC1_CHANNEL_4); // Super fast custom analogRead() alterantive
+#else
+      myArray[sampleNo] = adc1_get_raw(ADC1_CHANNEL_4);                        // slower, but also working, if WiFi is disabled
+#endif
+      sampleNo++;
+      int64_t m = esp_timer_get_time(); // slim replacement vor delayMicroseconds()
+      while (esp_timer_get_time() < m + samplingDelay)
+      {
+        NOP();
+      }
+    }
+    endSampleMicros = esp_timer_get_time();
+    portENABLE_INTERRUPTS();
+
+    // Calculate the required time for taking one sample -------------------------------------
+    oneSampleDuration = ((endSampleMicros + oneSampleCalibration - startSampleMicros) / arraySize);
+
+    // calculate signal frequency using trigger level crossing
+    sampleNo = 0;
+    sampleHi = 0;
+    while (myArray[sampleNo] < triggerLevel && (sampleNo < (arraySize - 1)))
+      sampleNo++;
+    while (myArray[sampleNo] > triggerLevel && sampleNo < (arraySize - 1))
+    {
+      sampleNo++;
+      sampleHi++; // Samples above zero crossing for pulsewidth calculation
+    }
+    if (sampleHi > 0)
+    {
+      signalFrequency1 = (1000000L / (sampleNo * oneSampleDuration)); // Hz = full waves per one million microseconds
+      signalFrequency = (signalFrequency * (averagingPasses - 1) + signalFrequency1) / averagingPasses;
+    }
+    else
+    {
+      signalFrequency = 0;
+    }
+    pulseWidth1 = sampleHi * oneSampleDuration; // Pulsewidth calculation
+    pulseWidth = (pulseWidth * (averagingPasses - 1) + pulseWidth1) / averagingPasses;
+
+    // Calibrate & invert the whole array -----------------------------------------------------
+    for (sampleNo = 0; sampleNo < arraySize; sampleNo++)
+    {
+#if defined ADC_LINEARITY_COMPENSATION
+      myArray[sampleNo] = (int)ADC_LUT[myArray[sampleNo]]; // get the calibrated value from Lookup table
+#endif
+      myArray[sampleNo] = (adcMax - myArray[sampleNo]);
+    }
+
+    // compute array min, average, max values ------------------------------------------------
+    arrayMin = samplingArray.getMin();
+    arrayMax = samplingArray.getMax();
+    arrayAverage = samplingArray.getAverage();
+    vPP = (arrayMax - arrayMin) * voltMax / adcMax;
+  }
 }
 
 //
-// ========================================
+// =======================================================================================================
 // DRAW LCD
-// ========================================
+// =======================================================================================================
 //
 
 void drawDisplay()
@@ -187,8 +192,8 @@ void drawDisplay()
 
   static unsigned long previousUpdate;
 
-  if (millis() - previousUpdate >= 200)
-  { // every 200 ms
+  if (millis() - previousUpdate >= 100)
+  { // every 100 ms
     previousUpdate = millis();
 
     // clear old display contentmt
@@ -247,22 +252,24 @@ void drawDisplay()
 
     // refresh display content
     display.display();
+    takeNewSamples = true;
   }
 }
 
 //
-// ========================================
+// =======================================================================================================
 // MAIN OSCILLOSCOPE LOOP
-// ========================================
+// =======================================================================================================
 //
 
 void oscilloscopeLoop(bool init)
 {
   if (init)
   {
-    adc1_get_raw(ADC1_CHANNEL_4); // required for correct ADC configuration
-    samplingDelay = 160;          // Set ideal delay for standard RC Signals (132 for analogRead, 160 for adc1_get_raw)
-    popupMillis = millis();       // Show popup
+    adcAttachPin(ADC1_CHANNEL_4); // Scope crashing later , if this is used TODO
+    // adc1_get_raw(ADC1_CHANNEL_4); // required for correct ADC configuration
+    samplingDelay = 160;    // Set ideal delay for standard RC Signals (132 for analogRead, 160 for adc1_get_raw)
+    popupMillis = millis(); // Show popup
   }
 
   adjustADC();
